@@ -1,7 +1,7 @@
 {
-  "name": "Grace Template",
-  "description": "Template app using Graceloader",
-  "categories": ["tools"],
+  "name": "Floppy Bird_grace",
+  "description": "Fly a floppy through pipe gaps",
+  "categories": ["games"],
   "version": "0.0.1",
   "icon": {
     "16x16": "icon16.png",
@@ -9,7 +9,7 @@
     "64x64": "icon64.png"
   },
   "author": "Rene cavac Schickbauer",
-  "license_type": "MIT",
+  "license_type": "CC0-1.0",
   "application": [
     {
       "targets": ["tanmatsu", "konsool"],
