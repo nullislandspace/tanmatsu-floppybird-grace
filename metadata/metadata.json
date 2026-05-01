@@ -1,8 +1,8 @@
 {
-  "name": "Floppy Bird_grace",
+  "name": "Floppy Bird GL",
   "description": "Fly a floppy through pipe gaps",
   "categories": ["games"],
-  "version": "0.0.1",
+  "version": "2.0.0",
   "icon": {
     "16x16": "icon16.png",
     "32x32": "icon32.png",
@@ -13,7 +13,7 @@
   "application": [
     {
       "targets": ["tanmatsu", "konsool"],
-      "revision": 1,
+      "revision": 2,
       "type": "script",
       "interpreter": "at.cavac.graceloader",
       "executable": "app.so",
