@@ -4,6 +4,10 @@
 
 #pragma once
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdbool.h>
 #include <stdint.h>
 #include "driver/gpio.h"
@@ -124,6 +128,7 @@ typedef struct {
         struct {
             uint8_t amplifier_enable : 1;
             uint8_t camera_gpio0     : 1;
+            uint8_t amplifier_force  : 1;
         };
     };
 } tanmatsu_coprocessor_outputs_t;
@@ -207,6 +212,9 @@ esp_err_t tanmatsu_coprocessor_set_outputs(tanmatsu_coprocessor_handle_t   handl
 esp_err_t tanmatsu_coprocessor_get_amplifier_enable(tanmatsu_coprocessor_handle_t handle, bool* out_enable);
 esp_err_t tanmatsu_coprocessor_set_amplifier_enable(tanmatsu_coprocessor_handle_t handle, bool enable);
 
+esp_err_t tanmatsu_coprocessor_get_amplifier_force(tanmatsu_coprocessor_handle_t handle, bool* out_force);
+esp_err_t tanmatsu_coprocessor_set_amplifier_force(tanmatsu_coprocessor_handle_t handle, bool force);
+
 esp_err_t tanmatsu_coprocessor_get_camera_gpio0(tanmatsu_coprocessor_handle_t handle, bool* out_enable);
 esp_err_t tanmatsu_coprocessor_set_camera_gpio0(tanmatsu_coprocessor_handle_t handle, bool enable);
 
@@ -262,3 +270,7 @@ esp_err_t tanmatsu_coprocessor_get_message(tanmatsu_coprocessor_handle_t handle,
                                            bool* out_fade, bool* out_fade_hold);
 esp_err_t tanmatsu_coprocessor_set_message(tanmatsu_coprocessor_handle_t handle, bool red, bool green, bool blue,
                                            bool red_b, bool green_b, bool blue_b, bool fade, bool fade_hold);
+
+#ifdef __cplusplus
+}
+#endif
