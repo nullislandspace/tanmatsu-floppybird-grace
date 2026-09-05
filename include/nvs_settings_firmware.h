@@ -9,3 +9,5 @@
 
 esp_err_t nvs_settings_get_firmware_patch_level(uint8_t* out_level);
 esp_err_t nvs_settings_set_firmware_patch_level(uint8_t level);
+esp_err_t nvs_settings_get_welcome_message_state(uint8_t* out_level);
+esp_err_t nvs_settings_set_welcome_message_state(uint8_t level);

@@ -12,7 +12,7 @@ extern "C" {
 
 /** RTCIO output/input mode type. */
 typedef enum {
-    RTC_GPIO_MODE_INPUT_ONLY ,  /*!< Pad input */
+    RTC_GPIO_MODE_INPUT_ONLY,   /*!< Pad input */
     RTC_GPIO_MODE_OUTPUT_ONLY,  /*!< Pad output */
     RTC_GPIO_MODE_INPUT_OUTPUT, /*!< Pad input + output */
     RTC_GPIO_MODE_DISABLED,     /*!< Pad (output + input) disable */

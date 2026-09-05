@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2023-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2023-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -16,14 +16,15 @@
 
 #include <stdlib.h> //for abs()
 #include <string.h>
+#include "hal/config.h"
 #include "esp_types.h"
-#include "soc/spi_periph.h"
+#include "soc/spi_reg.h"
 #include "soc/spi_struct.h"
-#include "soc/lldesc.h"
 #include "hal/assert.h"
 #include "hal/misc.h"
 #include "hal/spi_types.h"
 #include "soc/hp_sys_clkrst_struct.h"
+#include "soc/hp_sys_clkrst_reg.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -40,7 +41,10 @@ extern "C" {
 
 #define SPI_LL_DMA_MAX_BIT_LEN    SPI_MS_DATA_BITLEN
 #define SPI_LL_CPU_MAX_BIT_LEN    (16 * 32)    //Fifo len: 16 words
+#define SPI_LL_TX_MINI_EXTRA_BITS 1            //Minimum length of TX non byte aligned data in bits
+#define SPI_LL_RX_MINI_EXTRA_BITS 1            //Minimum length of RX non byte aligned data in bits
 #define SPI_LL_SUPPORT_CLK_SRC_PRE_DIV      1  //clock source have divider before peripheral
+#define SPI_LL_SRC_PRE_DIV_MAX    (HP_SYS_CLKRST_REG_GPSPI2_MST_CLK_DIV_NUM + 1)   //source pre divider max
 #define SPI_LL_PERIPH_CLK_DIV_MAX ((SPI_CLKCNT_N + 1) * (SPI_CLKDIV_PRE + 1)) //peripheral internal maxmum clock divider
 #define SPI_LL_MOSI_FREE_LEVEL    1            //Default level after bus initialized
 
@@ -55,6 +59,8 @@ typedef spi_dev_t spi_dma_dev_t;
 // Type definition of all supported interrupts
 typedef enum {
     SPI_LL_INTR_TRANS_DONE =    BIT(0),     ///< A transaction has done
+    SPI_LL_INTR_IN_FULL =       BIT(4),     ///< DMA in_full error happened
+    SPI_LL_INTR_OUT_EMPTY =     BIT(5),     ///< DMA out_empty error happened
     SPI_LL_INTR_RDBUF =         BIT(6),     ///< Has received RDBUF command. Only available in slave HD.
     SPI_LL_INTR_WRBUF =         BIT(7),     ///< Has received WRBUF command. Only available in slave HD.
     SPI_LL_INTR_RDDMA =         BIT(8),     ///< Has received RDDMA command. Only available in slave HD.
@@ -115,7 +121,10 @@ static inline void _spi_ll_enable_bus_clock(spi_host_device_t host_id, bool enab
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define spi_ll_enable_bus_clock(...) (void)__DECLARE_RCC_ATOMIC_ENV; _spi_ll_enable_bus_clock(__VA_ARGS__)
+#define spi_ll_enable_bus_clock(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        _spi_ll_enable_bus_clock(__VA_ARGS__); \
+    } while(0)
 
 /**
  * Reset whole peripheral register to init value defined by HW design
@@ -139,7 +148,10 @@ static inline void spi_ll_reset_register(spi_host_device_t host_id)
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define spi_ll_reset_register(...) (void)__DECLARE_RCC_ATOMIC_ENV; spi_ll_reset_register(__VA_ARGS__)
+#define spi_ll_reset_register(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        spi_ll_reset_register(__VA_ARGS__); \
+    } while(0)
 
 /**
  * Enable functional output clock within peripheral
@@ -164,7 +176,10 @@ static inline void _spi_ll_enable_clock(spi_host_device_t host_id, bool enable)
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define spi_ll_enable_clock(...) (void)__DECLARE_RCC_ATOMIC_ENV; _spi_ll_enable_clock(__VA_ARGS__)
+#define spi_ll_enable_clock(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        _spi_ll_enable_clock(__VA_ARGS__); \
+    } while(0)
 
 /**
  * Select SPI peripheral clock source (master).
@@ -199,7 +214,10 @@ static inline void spi_ll_set_clk_source(spi_dev_t *hw, spi_clock_source_t clk_s
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define spi_ll_set_clk_source(...) (void)__DECLARE_RCC_ATOMIC_ENV; spi_ll_set_clk_source(__VA_ARGS__)
+#define spi_ll_set_clk_source(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        spi_ll_set_clk_source(__VA_ARGS__); \
+    } while(0)
 
 /**
  * Config clock source integrate pre_div before it enter GPSPI peripheral
@@ -225,7 +243,10 @@ static inline void spi_ll_clk_source_pre_div(spi_dev_t *hw, uint8_t hs_div, uint
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define spi_ll_clk_sour_pre_div(...) (void)__DECLARE_RCC_ATOMIC_ENV; spi_ll_clk_sour_pre_div(__VA_ARGS__)
+#define spi_ll_clk_sour_pre_div(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        spi_ll_clk_sour_pre_div(__VA_ARGS__); \
+    } while(0)
 
 /**
  * Initialize SPI peripheral (master).
@@ -245,6 +266,10 @@ static inline void spi_ll_master_init(spi_dev_t *hw)
     //Disable unneeded ints
     hw->slave.val = 0;
     hw->user.val = 0;
+
+    //Disable unused error_end condition
+    hw->user1.mst_wfull_err_end_en = 0;
+    hw->user2.mst_rempty_err_end_en = 0;
 
     hw->dma_conf.val = 0;
     hw->dma_conf.slv_tx_seg_trans_clr_en = 1;
@@ -747,13 +772,16 @@ static inline void spi_ll_master_keep_cs(spi_dev_t *hw, int keep_active)
  *----------------------------------------------------------------------------*/
 /**
  * Set the standard clock mode for master.
+ * This config take effect only when SPI_CLK (pre-div before periph) div >=2
  *
  * @param hw  Beginning address of the peripheral registers.
  * @param enable_std True for std timing, False for half cycle delay sampling.
  */
 static inline void spi_ll_master_set_rx_timing_mode(spi_dev_t *hw, spi_sampling_point_t sample_point)
 {
-    //This is not supported
+#if HAL_CONFIG(CHIP_SUPPORT_MIN_REV) >= 300
+    hw->clock.clk_edge_sel = (sample_point == SPI_SAMPLING_POINT_PHASE_1);
+#endif
 }
 
 /**
@@ -761,7 +789,11 @@ static inline void spi_ll_master_set_rx_timing_mode(spi_dev_t *hw, spi_sampling_
  */
 static inline bool spi_ll_master_is_rx_std_sample_supported(void)
 {
+#if HAL_CONFIG(CHIP_SUPPORT_MIN_REV) >= 300
+    return true;
+#else
     return false;
+#endif
 }
 
 /**
@@ -902,13 +934,16 @@ static inline void spi_ll_set_mosi_delay(spi_dev_t *hw, int delay_mode, int dela
 }
 
 /**
- * Determine and unify the default level of mosi line when bus free
+ * Determine and unify the default level of data line when bus idle
  *
  * @param hw Beginning address of the peripheral registers.
  */
-static inline void spi_ll_set_mosi_free_level(spi_dev_t *hw, bool level)
+static inline void spi_ll_set_data_pin_idle_level(spi_dev_t *hw, bool level)
 {
-    hw->ctrl.d_pol = level;     //set default level for MOSI only on IDLE state
+    hw->ctrl.d_pol = level;
+    hw->ctrl.q_pol = level;
+    hw->ctrl.wp_pol = level;
+    hw->ctrl.hold_pol = level;
 }
 
 /**
@@ -1143,17 +1178,18 @@ static inline uint32_t spi_ll_slave_get_rcv_bitlen(spi_dev_t *hw)
 //helper macros to generate code for each interrupts
 #define FOR_EACH_ITEM(op, list) do { list(op) } while(0)
 #define INTR_LIST(item)    \
-    item(SPI_LL_INTR_TRANS_DONE,    dma_int_ena.trans_done_int,         dma_int_raw.trans_done_int,         dma_int_clr.trans_done_int,            dma_int_set.trans_done_int) \
-    item(SPI_LL_INTR_RDBUF,         dma_int_ena.slv_rd_buf_done_int,    dma_int_raw.slv_rd_buf_done_int,    dma_int_clr.slv_rd_buf_done_int,       dma_int_set.slv_rd_buf_done_int) \
-    item(SPI_LL_INTR_WRBUF,         dma_int_ena.slv_wr_buf_done_int,    dma_int_raw.slv_wr_buf_done_int,    dma_int_clr.slv_wr_buf_done_int,       dma_int_set.slv_wr_buf_done_int) \
-    item(SPI_LL_INTR_RDDMA,         dma_int_ena.slv_rd_dma_done_int,    dma_int_raw.slv_rd_dma_done_int,    dma_int_clr.slv_rd_dma_done_int,       dma_int_set.slv_rd_dma_done_int) \
-    item(SPI_LL_INTR_WRDMA,         dma_int_ena.slv_wr_dma_done_int,    dma_int_raw.slv_wr_dma_done_int,    dma_int_clr.slv_wr_dma_done_int,       dma_int_set.slv_wr_dma_done_int) \
-    item(SPI_LL_INTR_SEG_DONE,      dma_int_ena.dma_seg_trans_done_int, dma_int_raw.dma_seg_trans_done_int, dma_int_clr.dma_seg_trans_done_int,    dma_int_set.dma_seg_trans_done_int) \
-    item(SPI_LL_INTR_CMD7,          dma_int_ena.slv_cmd7_int,           dma_int_raw.slv_cmd7_int,           dma_int_clr.slv_cmd7_int,              dma_int_set.slv_cmd7_int) \
-    item(SPI_LL_INTR_CMD8,          dma_int_ena.slv_cmd8_int,           dma_int_raw.slv_cmd8_int,           dma_int_clr.slv_cmd8_int,              dma_int_set.slv_cmd8_int) \
-    item(SPI_LL_INTR_CMD9,          dma_int_ena.slv_cmd9_int,           dma_int_raw.slv_cmd9_int,           dma_int_clr.slv_cmd9_int,              dma_int_set.slv_cmd9_int) \
-    item(SPI_LL_INTR_CMDA,          dma_int_ena.slv_cmda_int,           dma_int_raw.slv_cmda_int,           dma_int_clr.slv_cmda_int,              dma_int_set.slv_cmda_int)
-
+    item(SPI_LL_INTR_TRANS_DONE,    dma_int_ena.trans_done_int,             dma_int_raw.trans_done_int,             dma_int_clr.trans_done_int,             dma_int_set.trans_done_int) \
+    item(SPI_LL_INTR_IN_FULL,       dma_int_ena.dma_infifo_full_err_int,    dma_int_raw.dma_infifo_full_err_int,    dma_int_clr.dma_infifo_full_err_int,    dma_int_set.dma_infifo_full_err_int) \
+    item(SPI_LL_INTR_OUT_EMPTY,     dma_int_ena.dma_outfifo_empty_err_int,  dma_int_raw.dma_outfifo_empty_err_int,  dma_int_clr.dma_outfifo_empty_err_int,  dma_int_set.dma_outfifo_empty_err_int) \
+    item(SPI_LL_INTR_RDBUF,         dma_int_ena.slv_rd_buf_done_int,        dma_int_raw.slv_rd_buf_done_int,        dma_int_clr.slv_rd_buf_done_int,        dma_int_set.slv_rd_buf_done_int) \
+    item(SPI_LL_INTR_WRBUF,         dma_int_ena.slv_wr_buf_done_int,        dma_int_raw.slv_wr_buf_done_int,        dma_int_clr.slv_wr_buf_done_int,        dma_int_set.slv_wr_buf_done_int) \
+    item(SPI_LL_INTR_RDDMA,         dma_int_ena.slv_rd_dma_done_int,        dma_int_raw.slv_rd_dma_done_int,        dma_int_clr.slv_rd_dma_done_int,        dma_int_set.slv_rd_dma_done_int) \
+    item(SPI_LL_INTR_WRDMA,         dma_int_ena.slv_wr_dma_done_int,        dma_int_raw.slv_wr_dma_done_int,        dma_int_clr.slv_wr_dma_done_int,        dma_int_set.slv_wr_dma_done_int) \
+    item(SPI_LL_INTR_SEG_DONE,      dma_int_ena.dma_seg_trans_done_int,     dma_int_raw.dma_seg_trans_done_int,     dma_int_clr.dma_seg_trans_done_int,     dma_int_set.dma_seg_trans_done_int) \
+    item(SPI_LL_INTR_CMD7,          dma_int_ena.slv_cmd7_int,               dma_int_raw.slv_cmd7_int,               dma_int_clr.slv_cmd7_int,               dma_int_set.slv_cmd7_int) \
+    item(SPI_LL_INTR_CMD8,          dma_int_ena.slv_cmd8_int,               dma_int_raw.slv_cmd8_int,               dma_int_clr.slv_cmd8_int,               dma_int_set.slv_cmd8_int) \
+    item(SPI_LL_INTR_CMD9,          dma_int_ena.slv_cmd9_int,               dma_int_raw.slv_cmd9_int,               dma_int_clr.slv_cmd9_int,               dma_int_set.slv_cmd9_int) \
+    item(SPI_LL_INTR_CMDA,          dma_int_ena.slv_cmda_int,               dma_int_raw.slv_cmda_int,               dma_int_clr.slv_cmda_int,               dma_int_set.slv_cmda_int)
 
 static inline void spi_ll_enable_intr(spi_dev_t *hw, spi_ll_intr_t intr_mask)
 {

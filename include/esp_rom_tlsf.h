@@ -1,11 +1,12 @@
 /*
- * SPDX-FileCopyrightText: 2022-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 #include <stddef.h>
 #include <stdbool.h>
+#include "sdkconfig.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -17,8 +18,17 @@ typedef void* tlsf_t;
 typedef void* pool_t;
 
 /* Create/destroy a memory pool. */
+#if CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32H2
 tlsf_t tlsf_create(void* mem);
 tlsf_t tlsf_create_with_pool(void* mem, size_t bytes);
+size_t tlsf_size(void);
+#else
+tlsf_t tlsf_create(void* mem, size_t max_bytes);
+tlsf_t tlsf_create_with_pool(void* mem, size_t pool_bytes, size_t max_bytes);
+size_t tlsf_size(tlsf_t tlsf);
+#endif
+
+void tlsf_destroy(tlsf_t tlsf);
 pool_t tlsf_get_pool(tlsf_t tlsf);
 
 /* Add/remove memory pools. */
@@ -36,7 +46,6 @@ void tlsf_free(tlsf_t tlsf, void* ptr);
 size_t tlsf_block_size(void* ptr);
 
 /* Overheads/limits of internal structures. */
-size_t tlsf_size(void);
 size_t tlsf_pool_overhead(void);
 size_t tlsf_alloc_overhead(void);
 
@@ -47,7 +56,12 @@ size_t tlsf_alloc_overhead(void);
  */
 size_t tlsf_align_size(void);
 size_t tlsf_block_size_min(void);
+#if CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32H2
 size_t tlsf_block_size_max(void);
+#else
+size_t tlsf_block_size_max(tlsf_t tlsf);
+#endif
+size_t tlsf_fit_size(tlsf_t tlsf, size_t size);
 
 /* NOTE: The consumer of this callback function (tlsf_walk_pool) is patched
  * in IDF builds to address issues in the ROM implementation. For TEE build,
@@ -61,6 +75,7 @@ typedef bool (*tlsf_walker)(void* ptr, size_t size, int used, void* user);
 
 /* Debugging. */
 void tlsf_walk_pool(pool_t pool, tlsf_walker walker, void* user);
+void tlsf_walk_pool_patched(pool_t pool, tlsf_walker walker, void* user);
 /* Returns nonzero if any internal consistency check fails. */
 int tlsf_check(tlsf_t tlsf);
 int tlsf_check_pool(pool_t pool);
@@ -86,13 +101,22 @@ typedef bool (*poison_check_pfunc_t)(void *start, size_t size, bool is_free, boo
 void tlsf_poison_fill_pfunc_set(poison_fill_pfunc_t pfunc);
 
 /*!
- * @brief Set the function to call for checking memory region when
- * poisoning is configured.
+ * @brief Set the function to call in tlsf_check for checking memory
+ * region when poisoning is configured.
  *
  * @param pfunc The callback function to trigger for checking
  * the content of a memory region.
  */
 void tlsf_poison_check_pfunc_set(poison_check_pfunc_t pfunc);
+
+/*!
+ * @brief Set the function to call  in tlsf_walk_pool for checking memory
+ * region when poisoning is configured.
+ *
+ * @param pfunc The callback function to trigger for checking
+ * the content of a memory region.
+ */
+void tlsf_walk_pool_pfunc_set(poison_check_pfunc_t pfunc);
 
 #ifdef __cplusplus
 }

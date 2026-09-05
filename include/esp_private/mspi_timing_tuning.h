@@ -25,10 +25,31 @@ extern "C" {
 void mspi_timing_enter_low_speed_mode(bool control_spi1);
 
 /**
+ * @brief Get PSRAM frequency in low speed mode (MHz)
+ * @return PSRAM frequency in MHz when in low speed mode
+ */
+uint32_t mspi_timing_get_psram_low_speed_freq_mhz(void);
+
+/**
  * @brief Make MSPI work under the frequency as users set, may add certain delays to MSPI RX direction to meet timing requirements.
  * @param control_spi1  Select whether to control SPI1. For tuning, we need to use SPI1. After tuning (during startup stage), let the flash driver to control SPI1
  */
 void mspi_timing_enter_high_speed_mode(bool control_spi1);
+
+/**
+ * @brief Switch MSPI to low speed while suspending external memory cache to avoid in-flight cache line fills across the
+ * clock change.
+ *
+ * @note Early init only. Not safe for general runtime use: does not coordinate with other cores or freeze cache.
+ */
+void mspi_timing_enter_low_speed_early(void);
+
+/**
+ * @brief Switch MSPI to high speed while suspending external memory cache.
+ *
+ * @note Same usage constraints as @ref mspi_timing_enter_low_speed_early.
+ */
+void mspi_timing_enter_high_speed_early(void);
 
 /**
  * @brief Switch MSPI into low speed mode / high speed mode.
@@ -53,7 +74,6 @@ void mspi_timing_psram_tuning(void);
  * @brief Set MSPI pin default pin drive
  */
 void mspi_timing_set_pin_drive_strength(void);
-
 
 #ifdef __cplusplus
 }

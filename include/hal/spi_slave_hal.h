@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -27,9 +27,7 @@
 #include "esp_types.h"
 #include "soc/soc_caps.h"
 #include "hal/dma_types.h"
-#if SOC_GDMA_SUPPORTED
-#include "soc/gdma_channel.h"
-#endif
+#include "hal/gdma_types.h"
 #if SOC_GPSPI_SUPPORTED
 #include "hal/spi_ll.h"
 #endif
@@ -173,6 +171,23 @@ void spi_slave_hal_user_start(const spi_slave_hal_context_t *hal);
  * @param hal Context of the HAL layer.
  */
 bool spi_slave_hal_usr_is_done(spi_slave_hal_context_t* hal);
+
+/**
+ * Get SPI interrupt bits status by mask
+ *
+ * @param hal Context of the HAL layer.
+ * @param mask Mask of the interrupt bits to check.
+ * @return True if the masked interrupts are set, false otherwise.
+ */
+bool spi_slave_hal_get_intr_status(spi_slave_hal_context_t *hal, uint32_t mask);
+
+/**
+ * Clear SPI interrupt bits by mask
+ *
+ * @param hal Context of the HAL layer.
+ * @param mask Mask of the interrupt bits to clear.
+ */
+void spi_slave_hal_clear_intr_status(spi_slave_hal_context_t *hal, uint32_t mask);
 
 /**
  * Post transaction operations, fetch data from the buffer and recorded the length.

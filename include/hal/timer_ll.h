@@ -4,26 +4,35 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-// Attention: Timer Group has 3 independent functions: General Purpose Timer, Watchdog Timer and Clock calibration.
-//            This Low Level driver only serve the General Purpose Timer function.
-
 #pragma once
 
 #include <stdbool.h>
 #include "hal/assert.h"
 #include "hal/misc.h"
 #include "hal/timer_types.h"
+#include "hal/timg_ll.h"
 #include "soc/timer_group_struct.h"
 #include "soc/soc_etm_source.h"
 #include "soc/hp_sys_clkrst_struct.h"
 
+// Get timer group register base address with giving group number
+// Total number of general purpose timers
+#define TIMER_LL_GPTIMERS_TOTAL     (TIMG_LL_INST_NUM * TIMG_LL_GPTIMERS_PER_INST)
+
+#define TIMER_LL_GET_HW(group_id) ((group_id == 0) ? (&TIMERG0) : (&TIMERG1))
+
+// Bit width of GPTIMER counter
+#define TIMER_LL_COUNTER_BIT_WIDTH   54
+
+// Get alarm interrupt mask with the given timer ID
+#define TIMER_LL_EVENT_ALARM(timer_id) (1 << (timer_id))
+
+// Support RC_FAST as function clock
+#define TIMER_LL_FUNC_CLOCK_SUPPORT_RC_FAST 1
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-// Get timer group register base address with giving group number
-#define TIMER_LL_GET_HW(group_id) ((group_id == 0) ? (&TIMERG0) : (&TIMERG1))
-#define TIMER_LL_EVENT_ALARM(timer_id) (1 << (timer_id))
 
 #define TIMER_LL_ETM_TASK_TABLE(group, timer, task)                         \
     (uint32_t[2][2][GPTIMER_ETM_TASK_MAX]){                                 \
@@ -82,51 +91,6 @@ extern "C" {
     }[group][timer][event]
 
 /**
- * @brief Enable the bus clock for timer group module
- *
- * @param group_id Group ID
- * @param enable true to enable, false to disable
- */
-static inline void _timer_ll_enable_bus_clock(int group_id, bool enable)
-{
-    if (group_id == 0) {
-        HP_SYS_CLKRST.soc_clk_ctrl2.reg_timergrp0_apb_clk_en = enable;
-    } else {
-        HP_SYS_CLKRST.soc_clk_ctrl2.reg_timergrp1_apb_clk_en = enable;
-    }
-}
-
-/// use a macro to wrap the function, force the caller to use it in a critical section
-/// the critical section needs to declare the __DECLARE_RCC_RC_ATOMIC_ENV variable in advance
-#define timer_ll_enable_bus_clock(...) (void)__DECLARE_RCC_RC_ATOMIC_ENV; _timer_ll_enable_bus_clock(__VA_ARGS__)
-
-/**
- * @brief Reset the timer group module
- *
- * @note  After reset the register, the "flash boot protection" will be enabled again.
- *        FLash boot protection is not used anymore after system boot up.
- *        This function will disable it by default in order to prevent the system from being reset unexpectedly.
- *
- * @param group_id Group ID
- */
-static inline void _timer_ll_reset_register(int group_id)
-{
-    if (group_id == 0) {
-        HP_SYS_CLKRST.hp_rst_en1.reg_rst_en_timergrp0 = 1;
-        HP_SYS_CLKRST.hp_rst_en1.reg_rst_en_timergrp0 = 0;
-        TIMERG0.wdtconfig0.wdt_flashboot_mod_en = 0;
-    } else {
-        HP_SYS_CLKRST.hp_rst_en1.reg_rst_en_timergrp1 = 1;
-        HP_SYS_CLKRST.hp_rst_en1.reg_rst_en_timergrp1 = 0;
-        TIMERG1.wdtconfig0.wdt_flashboot_mod_en = 0;
-    }
-}
-
-/// use a macro to wrap the function, force the caller to use it in a critical section
-/// the critical section needs to declare the __DECLARE_RCC_RC_ATOMIC_ENV variable in advance
-#define timer_ll_reset_register(...) (void)__DECLARE_RCC_RC_ATOMIC_ENV; _timer_ll_reset_register(__VA_ARGS__)
-
-/**
  * @brief Set clock source for timer
  *
  * @param group_id Group ID
@@ -167,7 +131,10 @@ static inline void timer_ll_set_clock_source(int group_id, uint32_t timer_num, g
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define timer_ll_set_clock_source(...) (void)__DECLARE_RCC_ATOMIC_ENV; timer_ll_set_clock_source(__VA_ARGS__)
+#define timer_ll_set_clock_source(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        timer_ll_set_clock_source(__VA_ARGS__); \
+    } while(0)
 
 /**
  * @brief Enable Timer Group (GPTimer) module clock
@@ -195,7 +162,10 @@ static inline void _timer_ll_enable_clock(int group_id, uint32_t timer_num, bool
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define timer_ll_enable_clock(...) (void)__DECLARE_RCC_ATOMIC_ENV; _timer_ll_enable_clock(__VA_ARGS__)
+#define timer_ll_enable_clock(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        _timer_ll_enable_clock(__VA_ARGS__); \
+    } while(0)
 
 /**
  * @brief Enable alarm event

@@ -46,7 +46,7 @@ set(LINK_SCRIPT ${CMAKE_BINARY_DIR}/link_app.sh)
 file(GENERATE OUTPUT ${LINK_SCRIPT} CONTENT
 "#!/bin/sh
 ${CMAKE_C_COMPILER} \
-    -march=rv32imafc_zicsr_zifencei_xesppie -mabi=ilp32f \
+    -march=rv32imafc_zicsr_zifencei_zaamo_zalrsc_xesploop_xespv2p1 -mabi=ilp32f \
     -shared -nostdlib \
     -Wl,--gc-sections \
     -Wl,-Bsymbolic \

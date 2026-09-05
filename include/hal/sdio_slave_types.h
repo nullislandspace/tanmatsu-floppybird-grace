@@ -25,7 +25,6 @@ typedef enum {
     SDIO_SLAVE_HOSTINT_SEND_NEW_PACKET = BIT(23), ///< New packet available
 } sdio_slave_hostint_t;
 
-
 /// Timing of SDIO slave
 typedef enum {
     SDIO_SLAVE_TIMING_PSEND_PSAMPLE = 0,/**< Send at posedge, and sample at posedge. Default value for HS mode.

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -46,11 +46,9 @@
 #include "esp_types.h"
 #include "esp_err.h"
 #include "soc/soc_caps.h"
-#if SOC_GDMA_SUPPORTED
-#include "soc/gdma_channel.h"
-#endif
 #include "hal/spi_types.h"
 #include "hal/dma_types.h"
+#include "hal/gdma_types.h"
 #if SOC_GPSPI_SUPPORTED
 #include "hal/spi_ll.h"
 #endif
@@ -139,6 +137,15 @@ void spi_slave_hd_hal_init(spi_slave_hd_hal_context_t *hal, const spi_slave_hd_h
  * @return          True if event triggered, otherwise false
  */
 bool spi_slave_hd_hal_check_clear_event(spi_slave_hd_hal_context_t* hal, spi_event_t ev);
+
+/**
+ * @brief Check and clear the interrupt by mask
+ *
+ * @param hal       Context of the HAL layer
+ * @param mask      Mask of the interrupt bits to check
+ * @return          True if the masked interrupts are set, false otherwise
+ */
+bool spi_slave_hd_hal_check_clear_intr(spi_slave_hd_hal_context_t *hal, uint32_t mask);
 
 /**
  * @brief Check and clear the interrupt of one event.
@@ -257,7 +264,6 @@ int spi_slave_hd_hal_get_rxlen(spi_slave_hd_hal_context_t *hal);
  * @return          The address of last transaction
  */
 int spi_slave_hd_hal_get_last_addr(spi_slave_hd_hal_context_t *hal);
-
 
 ////////////////////////////////////////////////////////////////////////////////
 // Append Mode

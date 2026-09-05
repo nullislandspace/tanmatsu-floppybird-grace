@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2019-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2019-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -24,7 +24,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
 
 #if SOC_LEDC_SUPPORTED
 /**
@@ -248,6 +247,19 @@ typedef struct {
  */
 void ledc_hal_init(ledc_hal_context_t *hal, ledc_mode_t speed_mode);
 
+#if LEDC_LL_CHANNEL_SUPPORT_OVF_CNT
+/**
+ * @brief Configure the maximum timer overflow times for the LEDC channel
+ *
+ * @param hal Context of the HAL layer
+ * @param channel LEDC channel index, select from ledc_channel_t
+ * @param max_ovf_cnt The maximum timer overflow times. To disable the timer overflow count, set this parameter to 0.
+ *
+ * @return None
+ */
+void ledc_hal_channel_configure_maximum_timer_ovf_cnt(ledc_hal_context_t *hal, ledc_channel_t channel, uint32_t max_ovf_cnt);
+#endif
+
 /**
  * @brief Update channel configure when select low speed mode
  *
@@ -263,11 +275,10 @@ void ledc_hal_ls_channel_update(ledc_hal_context_t *hal, ledc_channel_t channel_
  *
  * @param hal Context of the HAL layer
  * @param channel_num LEDC channel index (0-7), select from ledc_channel_t
- * @param duty_start The duty start
  *
  * @return None
  */
-void ledc_hal_set_duty_start(ledc_hal_context_t *hal, ledc_channel_t channel_num, bool duty_start);
+void ledc_hal_set_duty_start(ledc_hal_context_t *hal, ledc_channel_t channel_num);
 
 /**
  * @brief Set LEDC the integer part of duty value
@@ -407,6 +418,17 @@ void ledc_hal_clear_fade_end_intr_status(ledc_hal_context_t *hal, ledc_channel_t
  * @return None
  */
 void ledc_hal_get_clk_cfg(ledc_hal_context_t *hal, ledc_timer_t timer_sel, ledc_clk_cfg_t *clk_cfg);
+
+/**
+ * @brief Get the address of the fade end interrupt status register.
+ *
+ * @param hal Context of the HAL layer
+ * @return Pointer to the fade end interrupt status register.
+ */
+static inline volatile void* ledc_hal_get_fade_end_intr_addr(ledc_hal_context_t *hal)
+{
+    return ledc_ll_get_fade_end_intr_addr(hal->dev);
+}
 
 #endif  //#if SOC_LEDC_SUPPORTED
 

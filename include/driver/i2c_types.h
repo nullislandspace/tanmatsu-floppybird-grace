@@ -8,8 +8,8 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "hal/i2c_types.h"
 #include "soc/soc_caps.h"
+#include "hal/i2c_types.h"
 #include "sdkconfig.h"
 
 #ifdef __cplusplus
@@ -25,7 +25,8 @@ typedef int i2c_port_num_t;
  * @brief Enumeration for I2C fsm status.
  */
 typedef enum {
-    I2C_STATUS_READ,      /*!< read status for current master command */
+    I2C_STATUS_READ,      /*!< read status for current master command, but just partial read, not all data is read is this status */
+    I2C_STATUS_READ_ALL,  /*!< read status for current master command, all data is read is this status */
     I2C_STATUS_WRITE,     /*!< write status for current master command */
     I2C_STATUS_START,     /*!< Start status for current master command */
     I2C_STATUS_STOP,      /*!< stop status for current master command */
@@ -106,9 +107,7 @@ typedef bool (*i2c_master_callback_t)(i2c_master_dev_handle_t i2c_dev, const i2c
  */
 typedef struct {
     uint8_t *buffer;  /**< Pointer for buffer received in callback. */
-#if CONFIG_I2C_ENABLE_SLAVE_DRIVER_VERSION_2
     uint32_t length;      /**< Length for buffer received in callback. */
-#endif
 } i2c_slave_rx_done_event_data_t;
 
 /**

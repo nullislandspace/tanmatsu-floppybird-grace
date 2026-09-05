@@ -34,7 +34,6 @@ typedef struct {
  */
 void sdmmc_hal_init(sdmmc_hal_context_t *hal);
 
-
 #ifdef __cplusplus
 }
 #endif

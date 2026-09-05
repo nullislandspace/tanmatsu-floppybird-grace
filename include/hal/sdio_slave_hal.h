@@ -156,7 +156,6 @@ extern "C" {
 /// Space used for each sending descriptor. Should initialize the sendbuf according to this size.
 #define SDIO_SLAVE_SEND_DESC_SIZE   sizeof(sdio_slave_hal_send_desc_t)
 
-
 /// Status of the sending part
 typedef enum {
     STATE_IDLE = 1,
@@ -190,7 +189,6 @@ typedef struct sdio_slave_hal_send_desc_s {
 typedef sdio_slave_ll_desc_t sdio_slave_hal_recv_desc_t;
 #define sdio_slave_hal_recv_desc_s sdio_slave_ll_desc_s
 typedef STAILQ_HEAD(recv_stailq_head_s, sdio_slave_hal_recv_desc_s) sdio_slave_hal_recv_stailq_t;
-
 
 /** HAL context structure. Call `sdio_slave_hal_init` to initialize it and
  * configure required members before actually use the HAL.
@@ -370,7 +368,6 @@ esp_err_t sdio_slave_hal_send_flush_next_buffer(sdio_slave_context_t *hal, void 
  */
 esp_err_t sdio_slave_hal_send_reset_counter(sdio_slave_context_t *hal);
 
-
 /*---------------------------------------------------------------------------
  *                  Receive
  *--------------------------------------------------------------------------*/
@@ -468,7 +465,6 @@ void sdio_slave_hal_recv_reset_counter(sdio_slave_context_t *hal);
  */
 void sdio_slave_hal_recv_flush_one_buffer(sdio_slave_context_t *hal);
 
-
 /*---------------------------------------------------------------------------
  *                  Host
  *--------------------------------------------------------------------------*/
@@ -506,7 +502,6 @@ void sdio_slave_hal_hostint_send(sdio_slave_context_t *hal, const sdio_slave_hos
  */
 void sdio_slave_hal_hostint_clear(sdio_slave_context_t *hal, const sdio_slave_hostint_t *mask);
 
-
 /**
  * Fetch the interrupt (host send to slave) status bits and clear all of them.
  * @param hal Context of the HAL layer.
@@ -531,6 +526,14 @@ uint8_t sdio_slave_hal_host_get_reg(sdio_slave_context_t *hal, int pos);
  * @param reg Value to set.
  */
 void sdio_slave_hal_host_set_reg(sdio_slave_context_t *hal, int pos, uint8_t reg);
+
+/**
+ * Get the address of the interrupt status register.
+ *
+ * @param hal Context of the HAL layer.
+ * @return Address of the interrupt status register
+ */
+volatile void* sdio_slave_hal_get_intr_status_reg(sdio_slave_context_t *hal);
 
 #endif  // SOC_SDIO_SLAVE_SUPPORTED
 

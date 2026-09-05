@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -11,7 +11,7 @@
 #include <stdbool.h>
 #include "hal/misc.h"
 #include "hal/assert.h"
-#include "soc/i2c_periph.h"
+#include "hal/i2c_periph.h"
 #include "soc/soc_caps.h"
 #include "soc/i2c_struct.h"
 #include "hal/i2c_types.h"
@@ -23,6 +23,17 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define I2C_LL_GET(_attr)       I2C_LL_ ## _attr
+
+#define I2C_LL_FIFO_LEN         32 /*!< I2C hardware FIFO depth */
+#define I2C_LL_LP_FIFO_LEN      16 /*!< LP_I2C hardware FIFO depth */
+#define I2C_LL_CMD_REG_NUM      8  /*!< Number of I2C command registers */
+
+#define I2C_LL_SUPPORT_HW_FSM_RST            (1)  /*!< Support hardware FSM reset */
+#define I2C_LL_SUPPORT_HW_CLR_BUS            (1)  /*!< Support hardware clear bus */
+// #define I2C_LL_SLAVE_SUPPORT_I2CRAM_ACCESS   (1)  /*!< Slave support I2CRAM access */
+// #define I2C_LL_SLAVE_SUPPORT_SLAVE_UNMATCH   (1)  /*!< Slave support slave unmatch */
 
 /**
  * @brief I2C hardware cmd register fields.
@@ -593,7 +604,7 @@ static inline void i2c_ll_get_rxfifo_cnt(i2c_dev_t *hw, uint32_t *length)
 __attribute__((always_inline))
 static inline void i2c_ll_get_txfifo_len(i2c_dev_t *hw, uint32_t *length)
 {
-    *length = (hw->sr.txfifo_cnt >= SOC_I2C_FIFO_LEN) ? 0 : (SOC_I2C_FIFO_LEN - hw->sr.txfifo_cnt);
+    *length = (hw->sr.txfifo_cnt >= I2C_LL_GET(FIFO_LEN)) ? 0 : (I2C_LL_GET(FIFO_LEN) - hw->sr.txfifo_cnt);
 }
 
 /**
@@ -879,7 +890,10 @@ static inline void lp_i2c_ll_set_source_clk(i2c_dev_t *hw, soc_periph_lp_i2c_clk
 }
 
 /// LP_AON_CLKRST.lpperi is a shared register, so this function must be used in an atomic way
-#define lp_i2c_ll_set_source_clk(...) (void)__DECLARE_RCC_ATOMIC_ENV; lp_i2c_ll_set_source_clk(__VA_ARGS__)
+#define lp_i2c_ll_set_source_clk(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        lp_i2c_ll_set_source_clk(__VA_ARGS__); \
+    } while(0)
 
 /**
  * @brief Enable bus clock for the LP I2C module
@@ -894,7 +908,10 @@ static inline void _lp_i2c_ll_enable_bus_clock(int hw_id, bool enable)
 }
 
 /// LPPERI.clk_en is a shared register, so this function must be used in an atomic way
-#define lp_i2c_ll_enable_bus_clock(...) (void)__DECLARE_RCC_ATOMIC_ENV; _lp_i2c_ll_enable_bus_clock(__VA_ARGS__)
+#define lp_i2c_ll_enable_bus_clock(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        _lp_i2c_ll_enable_bus_clock(__VA_ARGS__); \
+    } while(0)
 
 /**
  * @brief Reset LP I2C module
@@ -909,7 +926,10 @@ static inline void lp_i2c_ll_reset_register(int hw_id)
 }
 
 /// LPPERI.reset_en is a shared register, so this function must be used in an atomic way
-#define lp_i2c_ll_reset_register(...) (void)__DECLARE_RCC_ATOMIC_ENV; lp_i2c_ll_reset_register(__VA_ARGS__)
+#define lp_i2c_ll_reset_register(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        lp_i2c_ll_reset_register(__VA_ARGS__); \
+    } while(0)
 
 /**
  * @brief Enable I2C peripheral controller clock
@@ -1071,6 +1091,8 @@ static inline i2c_slave_read_write_status_t i2c_ll_slave_get_read_write_status(i
 #define I2C_LL_SLAVE_RX_INT           (I2C_RXFIFO_WM_INT_ENA_M | I2C_TRANS_COMPLETE_INT_ENA_M)
 // I2C max timeout value
 #define I2C_LL_MAX_TIMEOUT I2C_TIME_OUT_VALUE
+// I2C max timeout period in clock cycles
+#define I2C_LL_MAX_TIMEOUT_PERIOD    (1UL << I2C_LL_MAX_TIMEOUT)
 
 #define I2C_LL_INTR_MASK          (0x3fff) /*!< I2C all interrupt bitmap */
 

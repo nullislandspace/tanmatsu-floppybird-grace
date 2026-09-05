@@ -13,7 +13,14 @@
 #include "soc/lcd_cam_struct.h"
 #include "hal/assert.h"
 #include "hal/lcd_types.h"
+#include "hal/config.h"
 #include "soc/hp_sys_clkrst_struct.h"
+
+#define LCD_LL_GET(_attr)       LCD_LL_ ## _attr
+#define LCD_LL_RGB_BUS_WIDTH    24
+#define LCD_LL_RGB_PANEL_NUM    1
+#define LCD_LL_I80_BUS_WIDTH    24
+#define LCD_LL_I80_BUS_NUM      1
 
 #ifdef __cplusplus
 extern "C" {
@@ -24,6 +31,16 @@ extern "C" {
 // Interrupt event, bit mask
 #define LCD_LL_EVENT_VSYNC_END  (1 << 0)
 #define LCD_LL_EVENT_TRANS_DONE (1 << 1)
+
+// Underrun interrupt is only supported on ESP32P4 Rev. 3.0 and later
+#if HAL_CONFIG(CHIP_SUPPORT_MIN_REV) >= 300
+#define LCD_LL_EVENT_UNDERRUN   (1 << 4)
+#else
+#define LCD_LL_EVENT_UNDERRUN   0
+#endif
+
+#define LCD_LL_EVENT_I80        LCD_LL_EVENT_TRANS_DONE | LCD_LL_EVENT_UNDERRUN
+#define LCD_LL_EVENT_RGB        LCD_LL_EVENT_VSYNC_END | LCD_LL_EVENT_UNDERRUN
 
 #define LCD_LL_CLK_FRAC_DIV_N_MAX  256 // LCD_CLK = LCD_CLK_S / (N + b/a), the N register is 8 bit-width
 #define LCD_LL_CLK_FRAC_DIV_AB_MAX 64  // LCD_CLK = LCD_CLK_S / (N + b/a), the a/b register is 6 bit-width
@@ -56,7 +73,10 @@ static inline void lcd_ll_enable_bus_clock(int group_id, bool enable)
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_RC_ATOMIC_ENV variable in advance
-#define lcd_ll_enable_bus_clock(...) (void)__DECLARE_RCC_RC_ATOMIC_ENV; lcd_ll_enable_bus_clock(__VA_ARGS__)
+#define lcd_ll_enable_bus_clock(...) do { \
+        (void)__DECLARE_RCC_RC_ATOMIC_ENV; \
+        lcd_ll_enable_bus_clock(__VA_ARGS__); \
+    } while(0)
 
 /**
  * @brief Reset the LCD module
@@ -72,7 +92,10 @@ static inline void _lcd_ll_reset_register(int group_id)
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_RC_ATOMIC_ENV variable in advance
-#define lcd_ll_reset_register(...) (void)__DECLARE_RCC_RC_ATOMIC_ENV; _lcd_ll_reset_register(__VA_ARGS__)
+#define lcd_ll_reset_register(...) do { \
+        (void)__DECLARE_RCC_RC_ATOMIC_ENV; \
+        _lcd_ll_reset_register(__VA_ARGS__); \
+    } while(0)
 
 /**
  * @brief Enable clock gating
@@ -87,7 +110,10 @@ static inline void lcd_ll_enable_clock(lcd_cam_dev_t *dev, bool en)
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define lcd_ll_enable_clock(...) (void)__DECLARE_RCC_ATOMIC_ENV; lcd_ll_enable_clock(__VA_ARGS__)
+#define lcd_ll_enable_clock(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        lcd_ll_enable_clock(__VA_ARGS__); \
+    } while(0)
 
 /**
  * @brief Select clock source for LCD peripheral
@@ -116,7 +142,10 @@ static inline void lcd_ll_select_clk_src(lcd_cam_dev_t *dev, lcd_clock_source_t 
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define lcd_ll_select_clk_src(...) (void)__DECLARE_RCC_ATOMIC_ENV; lcd_ll_select_clk_src(__VA_ARGS__)
+#define lcd_ll_select_clk_src(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        lcd_ll_select_clk_src(__VA_ARGS__); \
+    } while(0)
 
 /**
  * @brief Set clock coefficient of LCD peripheral
@@ -138,7 +167,10 @@ static inline void lcd_ll_set_group_clock_coeff(lcd_cam_dev_t *dev, int div_num,
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define lcd_ll_set_group_clock_coeff(...) (void)__DECLARE_RCC_ATOMIC_ENV; lcd_ll_set_group_clock_coeff(__VA_ARGS__)
+#define lcd_ll_set_group_clock_coeff(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        lcd_ll_set_group_clock_coeff(__VA_ARGS__); \
+    } while(0)
 
 /**
  * @brief Set the PCLK clock level state when there's no transaction undergoing
@@ -192,7 +224,7 @@ static inline void lcd_ll_set_pixel_clock_prescale(lcd_cam_dev_t *dev, uint32_t 
  * @param dev LCD register base address
  * @param en True to enable converter, False to disable converter
  */
-static inline void lcd_ll_enable_rgb_yuv_convert(lcd_cam_dev_t *dev, bool en)
+static inline void lcd_ll_enable_color_convert(lcd_cam_dev_t *dev, bool en)
 {
     dev->lcd_rgb_yuv.lcd_conv_enable = en;
 }
@@ -255,24 +287,22 @@ static inline void lcd_ll_set_yuv_convert_std(lcd_cam_dev_t *dev, lcd_yuv_conv_s
 }
 
 /**
- * @brief Set the converter mode: RGB565 to YUV
+ * @brief Set the converter mode: RGB to YUV
  *
  * @param dev LCD register base address
- * @param yuv_sample YUV sample mode
+ * @param in_color_format Input color format
+ * @param out_color_format Output color format
  */
-static inline void lcd_ll_set_convert_mode_rgb_to_yuv(lcd_cam_dev_t *dev, lcd_yuv_sample_t yuv_sample)
+static inline void lcd_ll_set_rgb2yuv_convert_mode(lcd_cam_dev_t *dev, lcd_color_format_t in_color_format, lcd_color_format_t out_color_format)
 {
     dev->lcd_rgb_yuv.lcd_conv_trans_mode = 1;
     dev->lcd_rgb_yuv.lcd_conv_yuv2yuv_mode = 3;
-    switch (yuv_sample) {
-    case LCD_YUV_SAMPLE_422:
+    switch (out_color_format) {
+    case LCD_COLOR_FMT_YUV422_UYVY:
         dev->lcd_rgb_yuv.lcd_conv_yuv_mode = 0;
         break;
-    case LCD_YUV_SAMPLE_420:
+    case LCD_COLOR_FMT_YUV420_OUYY_EVYY:
         dev->lcd_rgb_yuv.lcd_conv_yuv_mode = 1;
-        break;
-    case LCD_YUV_SAMPLE_411:
-        dev->lcd_rgb_yuv.lcd_conv_yuv_mode = 2;
         break;
     default:
         abort();
@@ -280,24 +310,22 @@ static inline void lcd_ll_set_convert_mode_rgb_to_yuv(lcd_cam_dev_t *dev, lcd_yu
 }
 
 /**
- * @brief Set the converter mode: YUV to RGB565
+ * @brief Set the converter mode: YUV to RGB
  *
  * @param dev LCD register base address
- * @param yuv_sample YUV sample mode
+ * @param in_color_format Input color format
+ * @param out_color_format Output color format
  */
-static inline void lcd_ll_set_convert_mode_yuv_to_rgb(lcd_cam_dev_t *dev, lcd_yuv_sample_t yuv_sample)
+static inline void lcd_ll_set_yuv2rgb_convert_mode(lcd_cam_dev_t *dev, lcd_color_format_t in_color_format, lcd_color_format_t out_color_format)
 {
     dev->lcd_rgb_yuv.lcd_conv_trans_mode = 0;
     dev->lcd_rgb_yuv.lcd_conv_yuv2yuv_mode = 3;
-    switch (yuv_sample) {
-    case LCD_YUV_SAMPLE_422:
+    switch (in_color_format) {
+    case LCD_COLOR_FMT_YUV422_UYVY:
         dev->lcd_rgb_yuv.lcd_conv_yuv_mode = 0;
         break;
-    case LCD_YUV_SAMPLE_420:
+    case LCD_COLOR_FMT_YUV420_OUYY_EVYY:
         dev->lcd_rgb_yuv.lcd_conv_yuv_mode = 1;
-        break;
-    case LCD_YUV_SAMPLE_411:
-        dev->lcd_rgb_yuv.lcd_conv_yuv_mode = 2;
         break;
     default:
         abort();
@@ -308,35 +336,28 @@ static inline void lcd_ll_set_convert_mode_yuv_to_rgb(lcd_cam_dev_t *dev, lcd_yu
  * @brief Set the converter mode: YUV to YUV
  *
  * @param dev LCD register base address
- * @param src_sample Source YUV sample mode
- * @param dst_sample Destination YUV sample mode
+ * @param in_color_format Input color format
+ * @param out_color_format Output color format
  */
-static inline void lcd_ll_set_convert_mode_yuv_to_yuv(lcd_cam_dev_t *dev, lcd_yuv_sample_t src_sample, lcd_yuv_sample_t dst_sample)
+static inline void lcd_ll_set_yuv2yuv_convert_mode(lcd_cam_dev_t *dev, lcd_color_format_t in_color_format, lcd_color_format_t out_color_format)
 {
-    HAL_ASSERT(src_sample != dst_sample);
     dev->lcd_rgb_yuv.lcd_conv_trans_mode = 1;
-    switch (src_sample) {
-    case LCD_YUV_SAMPLE_422:
+    switch (in_color_format) {
+    case LCD_COLOR_FMT_YUV422_UYVY:
         dev->lcd_rgb_yuv.lcd_conv_yuv_mode = 0;
         break;
-    case LCD_YUV_SAMPLE_420:
+    case LCD_COLOR_FMT_YUV420_OUYY_EVYY:
         dev->lcd_rgb_yuv.lcd_conv_yuv_mode = 1;
-        break;
-    case LCD_YUV_SAMPLE_411:
-        dev->lcd_rgb_yuv.lcd_conv_yuv_mode = 2;
         break;
     default:
         abort();
     }
-    switch (dst_sample) {
-    case LCD_YUV_SAMPLE_422:
+    switch (out_color_format) {
+    case LCD_COLOR_FMT_YUV422_UYVY:
         dev->lcd_rgb_yuv.lcd_conv_yuv2yuv_mode = 0;
         break;
-    case LCD_YUV_SAMPLE_420:
+    case LCD_COLOR_FMT_YUV420_OUYY_EVYY:
         dev->lcd_rgb_yuv.lcd_conv_yuv2yuv_mode = 1;
-        break;
-    case LCD_YUV_SAMPLE_411:
-        dev->lcd_rgb_yuv.lcd_conv_yuv2yuv_mode = 2;
         break;
     default:
         abort();
@@ -729,9 +750,9 @@ static inline void lcd_ll_set_delay_ticks(lcd_cam_dev_t *dev, uint32_t hsync_del
 static inline void lcd_ll_enable_interrupt(lcd_cam_dev_t *dev, uint32_t mask, bool en)
 {
     if (en) {
-        dev->lc_dma_int_ena.val |= mask & 0x03;
+        dev->lc_dma_int_ena.val |= mask & 0x13;
     } else {
-        dev->lc_dma_int_ena.val &= ~(mask & 0x03);
+        dev->lc_dma_int_ena.val &= ~(mask & 0x13);
     }
 }
 /// use a macro to wrap the function, force the caller to use it in a critical section
@@ -750,7 +771,7 @@ static inline void lcd_ll_enable_interrupt(lcd_cam_dev_t *dev, uint32_t mask, bo
 __attribute__((always_inline))
 static inline uint32_t lcd_ll_get_interrupt_status(lcd_cam_dev_t *dev)
 {
-    return dev->lc_dma_int_st.val & 0x03;
+    return dev->lc_dma_int_st.val & 0x13;
 }
 
 /**
@@ -762,7 +783,7 @@ static inline uint32_t lcd_ll_get_interrupt_status(lcd_cam_dev_t *dev)
 __attribute__((always_inline))
 static inline void lcd_ll_clear_interrupt_status(lcd_cam_dev_t *dev, uint32_t mask)
 {
-    dev->lc_dma_int_clr.val = mask & 0x03;
+    dev->lc_dma_int_clr.val = mask & 0x13;
 }
 
 /**

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2023-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2023-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -16,20 +16,114 @@
 #include "soc/clk_tree_defs.h"
 #include "soc/hp_sys_clkrst_struct.h"
 #include "soc/soc_caps.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include "soc/soc_etm_source.h"
 
 #define LEDC_LL_GET_HW()           &LEDC
+
+#define LEDC_LL_CHANNEL_SUPPORT_OVF_CNT     1
 
 #define LEDC_LL_DUTY_NUM_MAX       (LEDC_CH0_GAMMA_RANGE0_DUTY_NUM_V)
 #define LEDC_LL_DUTY_CYCLE_MAX     (LEDC_CH0_GAMMA_RANGE0_DUTY_CYCLE_V)
 #define LEDC_LL_DUTY_SCALE_MAX     (LEDC_CH0_GAMMA_RANGE0_SCALE_V)
 #define LEDC_LL_HPOINT_VAL_MAX     (LEDC_HPOINT_CH0_V)
+#define LEDC_LL_OVF_CNT_MAX        (LEDC_OVF_NUM_CH0_V + 1)
 #define LEDC_LL_FRACTIONAL_BITS    (8)
 #define LEDC_LL_FRACTIONAL_MAX     ((1 << LEDC_LL_FRACTIONAL_BITS) - 1)
 #define LEDC_LL_GLOBAL_CLOCKS      SOC_LEDC_CLKS
+/// Get the mask of the fade end interrupt status register.
+#define LEDC_LL_FADE_END_INTR_MASK  (0xffUL << LEDC_DUTY_CHNG_END_CH0_INT_ENA_S)
+
+// Channel tasks: ID, enable register and bit
+#define LEDC_LL_ETM_CHANNEL_TASK_ID(group, channel, task) \
+    ((uint32_t [1][LEDC_CHANNEL_ETM_TASK_MAX]){{ \
+        [LEDC_CHANNEL_ETM_TASK_FADE_SCALE_UPDATE] = LEDC_TASK_DUTY_SCALE_UPDATE_CH0, \
+        [LEDC_CHANNEL_ETM_TASK_SIG_OUT_DIS]      = LEDC_TASK_SIG_OUT_DIS_CH0, \
+        [LEDC_CHANNEL_ETM_TASK_OVF_CNT_RST]      = LEDC_TASK_OVF_CNT_RST_CH0, \
+        [LEDC_CHANNEL_ETM_TASK_FADE_RESTART]     = LEDC_TASK_GAMMA_RESTART_CH0, \
+        [LEDC_CHANNEL_ETM_TASK_FADE_PAUSE]       = LEDC_TASK_GAMMA_PAUSE_CH0, \
+        [LEDC_CHANNEL_ETM_TASK_FADE_RESUME]      = LEDC_TASK_GAMMA_RESUME_CH0, \
+    }}[(group)][(task)] + (channel))
+
+#define LEDC_LL_ETM_CHANNEL_TASK_EN_REG(group, task) \
+    ((volatile uint32_t *[1][LEDC_CHANNEL_ETM_TASK_MAX]){{ \
+        [LEDC_CHANNEL_ETM_TASK_FADE_SCALE_UPDATE] = (volatile uint32_t *)LEDC_EVT_TASK_EN0_REG, \
+        [LEDC_CHANNEL_ETM_TASK_SIG_OUT_DIS]      = (volatile uint32_t *)LEDC_EVT_TASK_EN1_REG, \
+        [LEDC_CHANNEL_ETM_TASK_OVF_CNT_RST]      = (volatile uint32_t *)LEDC_EVT_TASK_EN1_REG, \
+        [LEDC_CHANNEL_ETM_TASK_FADE_RESTART]     = (volatile uint32_t *)LEDC_EVT_TASK_EN2_REG, \
+        [LEDC_CHANNEL_ETM_TASK_FADE_PAUSE]       = (volatile uint32_t *)LEDC_EVT_TASK_EN2_REG, \
+        [LEDC_CHANNEL_ETM_TASK_FADE_RESUME]      = (volatile uint32_t *)LEDC_EVT_TASK_EN2_REG, \
+    }}[(group)][(task)])
+
+#define LEDC_LL_ETM_CHANNEL_TASK_EN_BIT(group, channel, task) \
+    ((uint32_t [1][LEDC_CHANNEL_ETM_TASK_MAX]){{ \
+        [LEDC_CHANNEL_ETM_TASK_FADE_SCALE_UPDATE] = BIT(LEDC_TASK_DUTY_SCALE_UPDATE_CH0_EN_S), \
+        [LEDC_CHANNEL_ETM_TASK_SIG_OUT_DIS]      = BIT(LEDC_TASK_SIG_OUT_DIS_CH0_EN_S), \
+        [LEDC_CHANNEL_ETM_TASK_OVF_CNT_RST]      = BIT(LEDC_TASK_OVF_CNT_RST_CH0_EN_S), \
+        [LEDC_CHANNEL_ETM_TASK_FADE_RESTART]     = BIT(LEDC_TASK_GAMMA_RESTART_CH0_EN_S), \
+        [LEDC_CHANNEL_ETM_TASK_FADE_PAUSE]       = BIT(LEDC_TASK_GAMMA_PAUSE_CH0_EN_S), \
+        [LEDC_CHANNEL_ETM_TASK_FADE_RESUME]      = BIT(LEDC_TASK_GAMMA_RESUME_CH0_EN_S), \
+    }}[(group)][(task)] << (channel))
+
+// Channel events: ID, enable register and bit
+#define LEDC_LL_ETM_CHANNEL_EVENT_ID(group, channel, event) \
+    ((uint32_t [1][LEDC_CHANNEL_ETM_EVENT_MAX]){{ \
+        [LEDC_CHANNEL_ETM_EVENT_FADE_END]          = LEDC_EVT_DUTY_CHNG_END_CH0, \
+        [LEDC_CHANNEL_ETM_EVENT_REACH_MAX_OVF_CNT] = LEDC_EVT_OVF_CNT_PLS_CH0, \
+    }}[(group)][(event)] + (channel))
+
+#define LEDC_LL_ETM_CHANNEL_EVENT_EN_REG(group, event) \
+    ((volatile uint32_t *[1][LEDC_CHANNEL_ETM_EVENT_MAX]){{ \
+        [LEDC_CHANNEL_ETM_EVENT_FADE_END]          = (volatile uint32_t *)LEDC_EVT_TASK_EN0_REG, \
+        [LEDC_CHANNEL_ETM_EVENT_REACH_MAX_OVF_CNT] = (volatile uint32_t *)LEDC_EVT_TASK_EN0_REG, \
+    }}[(group)][(event)])
+
+#define LEDC_LL_ETM_CHANNEL_EVENT_EN_BIT(group, channel, event) \
+    ((uint32_t [1][LEDC_CHANNEL_ETM_EVENT_MAX]){{ \
+        [LEDC_CHANNEL_ETM_EVENT_FADE_END]          = BIT(LEDC_EVT_DUTY_CHNG_END_CH0_EN_S), \
+        [LEDC_CHANNEL_ETM_EVENT_REACH_MAX_OVF_CNT] = BIT(LEDC_EVT_OVF_CNT_PLS_CH0_EN_S), \
+    }}[(group)][(event)] << (channel))
+
+// Timer tasks: ID, enable register and bit
+#define LEDC_LL_ETM_TIMER_TASK_ID(group, timer, task) \
+    ((uint32_t [1][LEDC_TIMER_ETM_TASK_MAX]){{ \
+        [LEDC_TIMER_ETM_TASK_RST]    = LEDC_TASK_TIMER0_RST, \
+        [LEDC_TIMER_ETM_TASK_RESUME] = LEDC_TASK_TIMER0_RESUME, \
+        [LEDC_TIMER_ETM_TASK_PAUSE]  = LEDC_TASK_TIMER0_PAUSE, \
+    }}[(group)][(task)] + (timer))
+
+#define LEDC_LL_ETM_TIMER_TASK_EN_REG(group, task) \
+    ((volatile uint32_t *[1][LEDC_TIMER_ETM_TASK_MAX]){{ \
+        [LEDC_TIMER_ETM_TASK_RST]    = (volatile uint32_t *)LEDC_EVT_TASK_EN1_REG, \
+        [LEDC_TIMER_ETM_TASK_RESUME] = (volatile uint32_t *)LEDC_EVT_TASK_EN1_REG, \
+        [LEDC_TIMER_ETM_TASK_PAUSE]  = (volatile uint32_t *)LEDC_EVT_TASK_EN1_REG, \
+    }}[(group)][(task)])
+
+#define LEDC_LL_ETM_TIMER_TASK_EN_BIT(group, timer, task) \
+    ((uint32_t [1][LEDC_TIMER_ETM_TASK_MAX]){{ \
+        [LEDC_TIMER_ETM_TASK_RST]    = BIT(LEDC_TASK_TIMER0_RST_EN_S), \
+        [LEDC_TIMER_ETM_TASK_RESUME] = BIT(LEDC_TASK_TIMER0_PAUSE_RESUME_EN_S), \
+        [LEDC_TIMER_ETM_TASK_PAUSE]  = BIT(LEDC_TASK_TIMER0_PAUSE_RESUME_EN_S), \
+    }}[(group)][(task)] << (timer))
+
+// Timer events: ID, enable register and bit
+#define LEDC_LL_ETM_TIMER_EVENT_ID(group, timer, event) \
+    ((uint32_t [1][LEDC_TIMER_ETM_EVENT_MAX]){{ \
+        [LEDC_TIMER_ETM_EVENT_OVF] = LEDC_EVT_TIME_OVF_TIMER0, \
+    }}[(group)][(event)] + (timer))
+
+#define LEDC_LL_ETM_TIMER_EVENT_EN_REG(group, event) \
+    ((volatile uint32_t *[1][LEDC_TIMER_ETM_EVENT_MAX]){{ \
+        [LEDC_TIMER_ETM_EVENT_OVF] = (volatile uint32_t *)LEDC_EVT_TASK_EN0_REG, \
+    }}[(group)][(event)])
+
+#define LEDC_LL_ETM_TIMER_EVENT_EN_BIT(group, timer, event) \
+    ((uint32_t [1][LEDC_TIMER_ETM_EVENT_MAX]){{ \
+        [LEDC_TIMER_ETM_EVENT_OVF] = BIT(LEDC_EVT_TIME_OVF_TIMER0_EN_S), \
+    }}[(group)][(event)] << (timer))
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /**
  * @brief Enable peripheral register clock
@@ -43,7 +137,10 @@ static inline void ledc_ll_enable_bus_clock(bool enable)
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define ledc_ll_enable_bus_clock(...) (void)__DECLARE_RCC_ATOMIC_ENV; ledc_ll_enable_bus_clock(__VA_ARGS__)
+#define ledc_ll_enable_bus_clock(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        ledc_ll_enable_bus_clock(__VA_ARGS__); \
+    } while(0)
 
 /**
  * @brief Reset whole peripheral register to init value defined by HW design
@@ -55,7 +152,10 @@ static inline void ledc_ll_enable_reset_reg(bool enable)
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define ledc_ll_enable_reset_reg(...) (void)__DECLARE_RCC_ATOMIC_ENV; ledc_ll_enable_reset_reg(__VA_ARGS__)
+#define ledc_ll_enable_reset_reg(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        ledc_ll_enable_reset_reg(__VA_ARGS__); \
+    } while(0)
 
 /**
  * @brief Enable the power for LEDC memory block
@@ -81,7 +181,36 @@ static inline void ledc_ll_enable_clock(ledc_dev_t *hw, bool en)
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define ledc_ll_enable_clock(...) (void)__DECLARE_RCC_ATOMIC_ENV; ledc_ll_enable_clock(__VA_ARGS__)
+#define ledc_ll_enable_clock(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        ledc_ll_enable_clock(__VA_ARGS__); \
+    } while(0)
+
+/**
+ * @brief Enable the power for LEDC channel
+ *
+ * @param hw Beginning address of the peripheral registers
+ * @param speed_mode LEDC speed_mode, low-speed mode only
+ * @param channel_num LEDC channel index (0-5), select from ledc_channel_t
+ * @param en True to enable, false to disable
+ */
+static inline void ledc_ll_enable_channel_power(ledc_dev_t *hw, ledc_mode_t speed_mode, ledc_channel_t channel_num, bool en)
+{
+    // No per channel power control on P4
+}
+
+/**
+ * @brief Enable the power for LEDC timer
+ *
+ * @param hw Beginning address of the peripheral registers
+ * @param speed_mode LEDC speed_mode, low-speed mode only
+ * @param timer_sel LEDC timer index (0-3), select from ledc_timer_t
+ * @param en True to enable, false to disable
+ */
+static inline void ledc_ll_enable_timer_power(ledc_dev_t *hw, ledc_mode_t speed_mode, ledc_timer_t timer_sel, bool en)
+{
+    // No per timer power control on P4
+}
 
 /**
  * @brief Set LEDC low speed timer clock
@@ -95,8 +224,7 @@ static inline void ledc_ll_set_slow_clk_sel(ledc_dev_t *hw, ledc_slow_clk_sel_t 
 {
     (void) hw;
     uint32_t clk_sel_val = 3;
-    switch (slow_clk_sel)
-    {
+    switch (slow_clk_sel) {
     case LEDC_SLOW_CLK_XTAL:
         clk_sel_val = 0;
         break;
@@ -115,7 +243,10 @@ static inline void ledc_ll_set_slow_clk_sel(ledc_dev_t *hw, ledc_slow_clk_sel_t 
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define ledc_ll_set_slow_clk_sel(...) (void)__DECLARE_RCC_ATOMIC_ENV; ledc_ll_set_slow_clk_sel(__VA_ARGS__)
+#define ledc_ll_set_slow_clk_sel(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        ledc_ll_set_slow_clk_sel(__VA_ARGS__); \
+    } while(0)
 
 /**
  * @brief Get LEDC low speed timer clock
@@ -128,8 +259,7 @@ static inline void ledc_ll_set_slow_clk_sel(ledc_dev_t *hw, ledc_slow_clk_sel_t 
 static inline void ledc_ll_get_slow_clk_sel(ledc_dev_t *hw, ledc_slow_clk_sel_t *slow_clk_sel)
 {
     (void) hw;
-    switch (HP_SYS_CLKRST.peri_clk_ctrl22.reg_ledc_clk_src_sel)
-    {
+    switch (HP_SYS_CLKRST.peri_clk_ctrl22.reg_ledc_clk_src_sel) {
     case 0:
         *slow_clk_sel = LEDC_SLOW_CLK_XTAL;
         break;
@@ -245,7 +375,6 @@ static inline void ledc_ll_get_clock_divider(ledc_dev_t *hw, ledc_mode_t speed_m
 static inline void ledc_ll_get_clock_source(ledc_dev_t *hw, ledc_mode_t speed_mode, ledc_timer_t timer_sel, ledc_clk_src_t *clk_src)
 {
     // The target has no timer-specific clock source option
-    HAL_ASSERT(hw->timer_group[speed_mode].timer[timer_sel].conf.tick_sel == 0);
     *clk_src = LEDC_SCLK;
 }
 
@@ -299,7 +428,7 @@ static inline void ledc_ll_get_max_duty(ledc_dev_t *hw, ledc_mode_t speed_mode, 
  *
  * @param hw Beginning address of the peripheral registers
  * @param speed_mode LEDC speed_mode, low-speed mode only
- * @param channel_num LEDC channel index (0-5), select from ledc_channel_t
+ * @param channel_num LEDC channel index (0-7), select from ledc_channel_t
  *
  * @return None
  */
@@ -313,7 +442,7 @@ static inline void ledc_ll_ls_channel_update(ledc_dev_t *hw, ledc_mode_t speed_m
  *
  * @param hw Beginning address of the peripheral registers
  * @param speed_mode LEDC speed_mode, low-speed mode only
- * @param channel_num LEDC channel index (0-5), select from ledc_channel_t
+ * @param channel_num LEDC channel index (0-7), select from ledc_channel_t
  * @param hpoint_val LEDC hpoint value(max: 0xfffff)
  *
  * @return None
@@ -328,7 +457,7 @@ static inline void ledc_ll_set_hpoint(ledc_dev_t *hw, ledc_mode_t speed_mode, le
  *
  * @param hw Beginning address of the peripheral registers
  * @param speed_mode LEDC speed_mode, low-speed mode only
- * @param channel_num LEDC channel index (0-5), select from ledc_channel_t
+ * @param channel_num LEDC channel index (0-7), select from ledc_channel_t
  * @param hpoint_val Pointer to accept the LEDC hpoint value(max: 0xfffff)
  *
  * @return None
@@ -343,7 +472,7 @@ static inline void ledc_ll_get_hpoint(ledc_dev_t *hw, ledc_mode_t speed_mode, le
  *
  * @param hw Beginning address of the peripheral registers
  * @param speed_mode LEDC speed_mode, low-speed mode only
- * @param channel_num LEDC channel index (0-5), select from ledc_channel_t
+ * @param channel_num LEDC channel index (0-7), select from ledc_channel_t
  * @param duty_val LEDC duty value, the range of duty setting is [0, (2**duty_resolution)]
  *
  * @return None
@@ -358,14 +487,14 @@ static inline void ledc_ll_set_duty_int_part(ledc_dev_t *hw, ledc_mode_t speed_m
  *
  * @param hw Beginning address of the peripheral registers
  * @param speed_mode LEDC speed_mode, low-speed mode only
- * @param channel_num LEDC channel index (0-5), select from ledc_channel_t
+ * @param channel_num LEDC channel index (0-7), select from ledc_channel_t
  * @param duty_val Pointer to accept the LEDC duty value
  *
  * @return None
  */
 static inline void ledc_ll_get_duty(ledc_dev_t *hw, ledc_mode_t speed_mode, ledc_channel_t channel_num, uint32_t *duty_val)
 {
-    *duty_val = (hw->channel_group[speed_mode].channel[channel_num].duty_r.duty >> 4);
+    *duty_val = (hw->channel_group[speed_mode].channel[channel_num].duty_r.duty_r >> 4);
 }
 
 /**
@@ -373,7 +502,7 @@ static inline void ledc_ll_get_duty(ledc_dev_t *hw, ledc_mode_t speed_mode, ledc
  *
  * @param hw Beginning address of the peripheral registers
  * @param speed_mode LEDC speed_mode, low-speed mode only
- * @param channel_num LEDC channel index (0-5), select from ledc_channel_t
+ * @param channel_num LEDC channel index (0-7), select from ledc_channel_t
  * @param range Gamma fade range index, 0 ~ SOC_LEDC_GAMMA_CURVE_FADE_RANGE_MAX
  * @param dir LEDC duty change direction, increase or decrease
  * @param cycle The duty cycles
@@ -399,14 +528,14 @@ static inline void ledc_ll_set_fade_param_range(ledc_dev_t *hw, ledc_mode_t spee
  *
  * @param hw Beginning address of the peripheral registers
  * @param speed_mode LEDC speed_mode, low-speed mode only
- * @param channel_num LEDC channel index (0-5), select from ledc_channel_t
+ * @param channel_num LEDC channel index (0-7), select from ledc_channel_t
  * @param range_num Total number of ranges (1 - SOC_LEDC_GAMMA_CURVE_FADE_RANGE_MAX) of the fading configured
  *
  * @return None
  */
 static inline void ledc_ll_set_range_number(ledc_dev_t *hw, ledc_mode_t speed_mode, ledc_channel_t channel_num, uint32_t range_num)
 {
-    hw->chn_gamma_conf[channel_num].ch0_gamma_entry_num = range_num;
+    hw->chn_gamma_conf[channel_num].gamma_entry_num = range_num;
 }
 
 /**
@@ -414,14 +543,14 @@ static inline void ledc_ll_set_range_number(ledc_dev_t *hw, ledc_mode_t speed_mo
  *
  * @param hw Beginning address of the peripheral registers
  * @param speed_mode LEDC speed_mode, low-speed mode only
- * @param channel_num LEDC channel index (0-5), select from ledc_channel_t
+ * @param channel_num LEDC channel index (0-7), select from ledc_channel_t
  * @param range_num Pointer to accept fade range number
  *
  * @return None
  */
 static inline void ledc_ll_get_range_number(ledc_dev_t *hw, ledc_mode_t speed_mode, ledc_channel_t channel_num, uint32_t *range_num)
 {
-    *range_num = hw->chn_gamma_conf[channel_num].ch0_gamma_entry_num;
+    *range_num = hw->chn_gamma_conf[channel_num].gamma_entry_num;
 }
 
 /**
@@ -429,7 +558,7 @@ static inline void ledc_ll_get_range_number(ledc_dev_t *hw, ledc_mode_t speed_mo
  *
  * @param hw Beginning address of the peripheral registers
  * @param speed_mode LEDC speed_mode, low-speed mode only
- * @param channel_num LEDC channel index (0-5), select from ledc_channel_t
+ * @param channel_num LEDC channel index (0-7), select from ledc_channel_t
  * @param range Gamma fade range index to get, 0 ~ SOC_LEDC_GAMMA_CURVE_FADE_RANGE_MAX
  * @param dir Pointer to accept fade direction value
  * @param cycle Pointer to accept fade cycle value
@@ -455,7 +584,7 @@ static inline void ledc_ll_get_fade_param_range(ledc_dev_t *hw, ledc_mode_t spee
  *
  * @param hw Beginning address of the peripheral registers
  * @param speed_mode LEDC speed_mode, low-speed mode only
- * @param channel_num LEDC channel index (0-5), select from ledc_channel_t
+ * @param channel_num LEDC channel index (0-7), select from ledc_channel_t
  * @param sig_out_en The output enable status
  *
  * @return None
@@ -471,14 +600,13 @@ static inline void ledc_ll_set_sig_out_en(ledc_dev_t *hw, ledc_mode_t speed_mode
  *
  * @param hw Beginning address of the peripheral registers
  * @param speed_mode LEDC speed_mode, low-speed mode only
- * @param channel_num LEDC channel index (0-5), select from ledc_channel_t
- * @param duty_start The duty start
+ * @param channel_num LEDC channel index (0-7), select from ledc_channel_t
  *
  * @return None
  */
-static inline void ledc_ll_set_duty_start(ledc_dev_t *hw, ledc_mode_t speed_mode, ledc_channel_t channel_num, bool duty_start)
+static inline void ledc_ll_set_duty_start(ledc_dev_t *hw, ledc_mode_t speed_mode, ledc_channel_t channel_num)
 {
-    hw->channel_group[speed_mode].channel[channel_num].conf1.duty_start = duty_start;
+    hw->channel_group[speed_mode].channel[channel_num].conf1.duty_start = 1;
 }
 
 /**
@@ -486,7 +614,7 @@ static inline void ledc_ll_set_duty_start(ledc_dev_t *hw, ledc_mode_t speed_mode
  *
  * @param hw Beginning address of the peripheral registers
  * @param speed_mode LEDC speed_mode, low-speed mode only
- * @param channel_num LEDC channel index (0-5), select from ledc_channel_t
+ * @param channel_num LEDC channel index (0-7), select from ledc_channel_t
  * @param idle_level The output idle level
  *
  * @return None
@@ -502,7 +630,7 @@ static inline void ledc_ll_set_idle_level(ledc_dev_t *hw, ledc_mode_t speed_mode
  *
  * @param hw Beginning address of the peripheral registers
  * @param speed_mode LEDC speed_mode, low-speed mode only
- * @param channel_num LEDC channel index (0-5), select from ledc_channel_t
+ * @param channel_num LEDC channel index (0-7), select from ledc_channel_t
  * @param fade_end_intr_en The fade end interrupt enable status
  *
  * @return None
@@ -519,7 +647,6 @@ static inline void ledc_ll_set_fade_end_intr(ledc_dev_t *hw, ledc_mode_t speed_m
  *
  * @param hw Beginning address of the peripheral registers
  * @param speed_mode LEDC speed_mode, low-speed mode only
- * @param channel_num LEDC channel index (0-5), select from ledc_channel_t
  * @param intr_status The fade end interrupt status
  *
  * @return None
@@ -532,11 +659,22 @@ static inline void ledc_ll_get_fade_end_intr_status(ledc_dev_t *hw, ledc_mode_t 
 }
 
 /**
+ * @brief Get the address of the fade end interrupt status register.
+ *
+ * @param hw Beginning address of the peripheral registers
+ * @return Pointer to the fade end interrupt status register.
+ */
+static inline volatile void* ledc_ll_get_fade_end_intr_addr(ledc_dev_t *hw)
+{
+    return &hw->int_st.val;
+}
+
+/**
  * @brief Clear fade end interrupt status
  *
  * @param hw Beginning address of the peripheral registers
  * @param speed_mode LEDC speed_mode, low-speed mode only
- * @param channel_num LEDC channel index (0-5), select from ledc_channel_t
+ * @param channel_num LEDC channel index (0-7), select from ledc_channel_t
  *
  * @return None
  */
@@ -551,7 +689,7 @@ static inline void ledc_ll_clear_fade_end_intr_status(ledc_dev_t *hw, ledc_mode_
  *
  * @param hw Beginning address of the peripheral registers
  * @param speed_mode LEDC speed_mode, low-speed mode only
- * @param channel_num LEDC channel index (0-5), select from ledc_channel_t
+ * @param channel_num LEDC channel index (0-7), select from ledc_channel_t
  * @param timer_sel LEDC timer index (0-3), select from ledc_timer_t
  *
  * @return None
@@ -566,7 +704,7 @@ static inline void ledc_ll_bind_channel_timer(ledc_dev_t *hw, ledc_mode_t speed_
  *
  * @param hw Beginning address of the peripheral registers
  * @param speed_mode LEDC speed_mode, low-speed mode only
- * @param channel_num LEDC channel index (0-5), select from ledc_channel_t
+ * @param channel_num LEDC channel index (0-7), select from ledc_channel_t
  * @param timer_sel Pointer to accept the LEDC timer index
  *
  * @return None
@@ -574,6 +712,69 @@ static inline void ledc_ll_bind_channel_timer(ledc_dev_t *hw, ledc_mode_t speed_
 static inline void ledc_ll_get_channel_timer(ledc_dev_t *hw, ledc_mode_t speed_mode, ledc_channel_t channel_num, ledc_timer_t *timer_sel)
 {
     *timer_sel = (ledc_timer_t)(hw->channel_group[speed_mode].channel[channel_num].conf0.timer_sel);
+}
+
+/**
+ * @brief Enable or disable ETM event/task
+ *
+ * @param hw Beginning address of the peripheral registers
+ * @param speed_mode LEDC speed_mode, low-speed mode only
+ * @param reg_addr Register address to control the ETM event/task
+ * @param bit Bit position in the register
+ * @param enable Enable or disable the ETM event/task
+ */
+static inline void ledc_ll_etm_enable_evt_task(ledc_dev_t *hw, ledc_mode_t speed_mode, volatile uint32_t *reg_addr, uint32_t bit, bool enable)
+{
+    if (enable) {
+        REG_SET_BIT(reg_addr, bit);
+    } else {
+        REG_CLR_BIT(reg_addr, bit);
+    }
+}
+
+/**
+ * @brief Enable or disable the timer overflow counter for the specified channel
+ *
+ * @param hw Beginning address of the peripheral registers
+ * @param speed_mode LEDC speed_mode, low-speed mode only
+ * @param channel LEDC channel index (0-7), select from ledc_channel_t
+ * @param enable True to enable; false to disable
+ *
+ * @return None
+ */
+static inline void ledc_ll_channel_enable_timer_ovt_cnt(ledc_dev_t *hw, ledc_mode_t speed_mode, ledc_channel_t channel, bool enable)
+{
+    hw->channel_group[speed_mode].channel[channel].conf0.ovf_cnt_en = enable;
+}
+
+/**
+ * @brief Set the maximum timer overflow count for the specified channel
+ *
+ * @param hw Beginning address of the peripheral registers
+ * @param speed_mode LEDC speed_mode, low-speed mode only
+ * @param channel LEDC channel index (0-7), select from ledc_channel_t
+ * @param max_ovf_cnt The maximum timer overflow count
+ *
+ * @return None
+ */
+static inline void ledc_ll_channel_set_maximum_timer_ovf_cnt(ledc_dev_t *hw, ledc_mode_t speed_mode, ledc_channel_t channel, uint32_t max_ovf_cnt)
+{
+    HAL_ASSERT(max_ovf_cnt > 0 && max_ovf_cnt <= LEDC_LL_OVF_CNT_MAX);
+    hw->channel_group[speed_mode].channel[channel].conf0.ovf_num = max_ovf_cnt - 1;
+}
+
+/**
+ * @brief Reset the timer overflow counter for the specified channel
+ *
+ * @param hw Beginning address of the peripheral registers
+ * @param speed_mode LEDC speed_mode, low-speed mode only
+ * @param channel LEDC channel index (0-7), select from ledc_channel_t
+ *
+ * @return None
+ */
+static inline void ledc_ll_channel_reset_timer_ovf_cnt(ledc_dev_t *hw, ledc_mode_t speed_mode, ledc_channel_t channel)
+{
+    hw->channel_group[speed_mode].channel[channel].conf0.ovf_cnt_reset = 1;
 }
 
 #ifdef __cplusplus

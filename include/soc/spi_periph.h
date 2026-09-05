@@ -7,34 +7,20 @@
 #pragma once
 
 #include <stdint.h>
-#include "sdkconfig.h"
 #include "soc/soc.h"
 #include "soc/soc_caps.h"
+#include "soc/interrupts.h"
+#include "soc/gpio_sig_map.h"
+#include "soc/spi_reg.h"
+#include "soc/spi_struct.h"
 #include "soc/spi_pins.h"
 #if SOC_PAU_SUPPORTED
 #include "soc/regdma.h"
 #include "soc/retention_periph_defs.h"
 #endif
 
-//include soc related (generated) definitions
-#include "soc/interrupts.h"
-#include "soc/spi_reg.h"
-#include "soc/spi_struct.h"
-#include "soc/gpio_sig_map.h"
-#if SOC_MEMSPI_IS_INDEPENDENT
-#include "soc/spi_mem_struct.h"
-#include "soc/spi_mem_reg.h"
-#endif
-
 #ifdef __cplusplus
 extern "C" {
-#endif
-
-#if CONFIG_IDF_TARGET_ESP32S2
-#define SPI_FREAD_DIO 0
-#define SPI_FREAD_QIO 0
-#define SPI_FWRITE_DIO 0
-#define SPI_FWRITE_QIO 0
 #endif
 
 /*

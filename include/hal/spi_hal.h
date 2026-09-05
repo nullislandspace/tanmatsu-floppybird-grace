@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -27,11 +27,8 @@
 #pragma once
 #include "esp_err.h"
 #include "soc/soc_caps.h"
+#include "soc/spi_periph.h"
 #include "hal/spi_types.h"
-#include "hal/dma_types.h"
-#if SOC_GDMA_SUPPORTED
-#include "soc/gdma_channel.h"
-#endif
 #if SOC_GPSPI_SUPPORTED
 #include "hal/spi_ll.h"
 #endif
@@ -41,12 +38,6 @@ extern "C" {
 #endif
 
 #if SOC_GPSPI_SUPPORTED
-
-#if SOC_GDMA_TRIG_PERIPH_SPI2_BUS == SOC_GDMA_BUS_AHB
-typedef dma_descriptor_align4_t spi_dma_desc_t;
-#else
-typedef dma_descriptor_align8_t spi_dma_desc_t;
-#endif
 
 /**
  * Input parameters to the ``spi_hal_cal_clock_conf`` to calculate the timing configuration
@@ -172,12 +163,12 @@ typedef struct {
 void spi_hal_init(spi_hal_context_t *hal, uint32_t host_id);
 
 /**
- * Config default output IO level when don't have transaction
+ * Config default output data IO level when bus idle
  *
  * @param hal Context of the HAL layer.
  * @param level IO level to config
  */
-void spi_hal_config_io_default_level(spi_hal_context_t *hal, bool level);
+void spi_hal_set_data_pin_idle_level(spi_hal_context_t *hal, bool level);
 
 /**
  * Deinit the peripheral (and the context if needed).
@@ -239,6 +230,23 @@ void spi_hal_user_start(const spi_hal_context_t *hal);
  * @param hal Context of the HAL layer.
  */
 bool spi_hal_usr_is_done(const spi_hal_context_t *hal);
+
+/**
+ * Get SPI interrupt bits status by mask
+ *
+ * @param hal Context of the HAL layer.
+ * @param mask Mask of the interrupt bits to check.
+ * @return True if the masked interrupts are set, false otherwise.
+ */
+bool spi_hal_get_intr_mask(spi_hal_context_t *hal, uint32_t mask);
+
+/**
+ * Clear SPI interrupt bits by mask
+ *
+ * @param hal Context of the HAL layer.
+ * @param mask Mask of the interrupt bits to clear.
+ */
+void spi_hal_clear_intr_mask(spi_hal_context_t *hal, uint32_t mask);
 
 /**
  * Setup transaction operations, write tx buffer to HW registers
@@ -341,16 +349,6 @@ void spi_hal_sct_deinit(spi_hal_context_t *hal);
  * Set conf_bitslen to HW for sct.
  */
 void spi_hal_sct_set_conf_bits_len(spi_hal_context_t *hal, uint32_t conf_len);
-
-/**
- * Clear SPI interrupt bits by mask
- */
-void spi_hal_clear_intr_mask(spi_hal_context_t *hal, uint32_t mask);
-
-/**
- * Get SPI interrupt bits status by mask
- */
-bool spi_hal_get_intr_mask(spi_hal_context_t *hal, uint32_t mask);
 
 /**
  * Set conf_bitslen base to HW for sct, only supported on s2.

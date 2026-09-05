@@ -361,6 +361,22 @@ static inline uint32_t emac_ll_read_debug_reg(emac_mac_dev_t *mac_regs)
     return mac_regs->emacdebug.val;
 }
 
+/* pmt_csr */
+static inline void emac_ll_power_down_enable(emac_mac_dev_t *mac_regs, bool enable)
+{
+    mac_regs->pmt_csr.pwrdwn = enable;
+}
+
+static inline void emac_ll_magic_packet_enable(emac_mac_dev_t *mac_regs, bool enable)
+{
+    mac_regs->pmt_csr.mgkpkten = enable;
+}
+
+static inline bool emac_ll_get_magic_packet_received(emac_mac_dev_t *mac_regs)
+{
+    return mac_regs->pmt_csr.mgkprcvd;
+}
+
 /* emacmiidata */
 static inline void emac_ll_set_phy_data(emac_mac_dev_t *mac_regs, uint32_t data)
 {
@@ -377,6 +393,16 @@ static inline void emac_ll_set_addr(emac_mac_dev_t *mac_regs, const uint8_t *add
 {
     HAL_FORCE_MODIFY_U32_REG_FIELD(mac_regs->emacaddr0high, address0_hi, (addr[5] << 8) | addr[4]);
     mac_regs->emacaddr0low = (addr[3] << 24) | (addr[2] << 16) | (addr[1] << 8) | (addr[0]);
+}
+
+static inline void emac_ll_get_addr(emac_mac_dev_t *mac_regs, uint8_t *addr)
+{
+    addr[0] = mac_regs->emacaddr0low & 0xFF;
+    addr[1] = (mac_regs->emacaddr0low >> 8) & 0xFF;
+    addr[2] = (mac_regs->emacaddr0low >> 16) & 0xFF;
+    addr[3] = (mac_regs->emacaddr0low >> 24) & 0xFF;
+    addr[4] = mac_regs->emacaddr0high.address0_hi & 0xFF;
+    addr[5] = (mac_regs->emacaddr0high.address0_hi >> 8) & 0xFF;
 }
 
 /* emacaddrN */
@@ -396,12 +422,12 @@ static inline bool emac_ll_get_addr_filter(emac_mac_dev_t *mac_regs, uint8_t add
     addr_num = addr_num - 1; // MAC Address1 is located at emacaddr[0]
     if (mac_regs->emacaddr[addr_num].emacaddrhigh.address_enable) {
         if (mac_addr != NULL) {
-            *(&mac_addr[0]) = mac_regs->emacaddr[addr_num].emacaddrlow & 0xFF;
-            *(&mac_addr[1]) = (mac_regs->emacaddr[addr_num].emacaddrlow >> 8) & 0xFF;
-            *(&mac_addr[2]) = (mac_regs->emacaddr[addr_num].emacaddrlow >> 16) & 0xFF;
-            *(&mac_addr[3]) = (mac_regs->emacaddr[addr_num].emacaddrlow >> 24) & 0xFF;
-            *(&mac_addr[4]) = mac_regs->emacaddr[addr_num].emacaddrhigh.mac_address_hi & 0xFF;
-            *(&mac_addr[5]) = (mac_regs->emacaddr[addr_num].emacaddrhigh.mac_address_hi >> 8) & 0xFF;
+            mac_addr[0] = mac_regs->emacaddr[addr_num].emacaddrlow & 0xFF;
+            mac_addr[1] = (mac_regs->emacaddr[addr_num].emacaddrlow >> 8) & 0xFF;
+            mac_addr[2] = (mac_regs->emacaddr[addr_num].emacaddrlow >> 16) & 0xFF;
+            mac_addr[3] = (mac_regs->emacaddr[addr_num].emacaddrlow >> 24) & 0xFF;
+            mac_addr[4] = mac_regs->emacaddr[addr_num].emacaddrhigh.mac_address_hi & 0xFF;
+            mac_addr[5] = (mac_regs->emacaddr[addr_num].emacaddrhigh.mac_address_hi >> 8) & 0xFF;
         }
         if (mask != NULL) {
             *mask = mac_regs->emacaddr[addr_num].emacaddrhigh.mask_byte_control;
@@ -644,6 +670,11 @@ static inline void emac_ll_receive_poll_demand(emac_dma_dev_t *dma_regs, uint32_
     dma_regs->dmarxpolldemand = val;
 }
 
+static inline uint32_t emac_ll_get_hw_feat(emac_dma_dev_t *dma_regs)
+{
+    return dma_regs->hwfeat;
+}
+
 /*************** End of dma regs operation *********************/
 
 /************** Start of ptp regs operation ********************/
@@ -671,6 +702,11 @@ static inline void emac_ll_ts_ptp_ether_enable(emac_ptp_dev_t *ptp_regs, bool en
 static inline void emac_ll_ts_ptp_snap_type_sel(emac_ptp_dev_t *ptp_regs, uint8_t sel)
 {
     ptp_regs->timestamp_ctrl.sel_snap_type = sel;
+}
+
+static inline void emac_ll_ts_mac_addr_filter_enable(emac_ptp_dev_t *ptp_regs, bool enable)
+{
+    ptp_regs->timestamp_ctrl.en_mac_addr_filter = enable;
 }
 
 static inline void emac_ll_ts_ptp_snap_master_only_enable(emac_ptp_dev_t *ptp_regs, bool enable)
@@ -814,7 +850,18 @@ static inline void emac_ll_ts_target_int_trig_enable(emac_ptp_dev_t *ptp_regs)
     ptp_regs->timestamp_ctrl.en_ts_int_trig = 1;
 }
 
+static inline void emac_ll_set_pps0_out_freq(emac_ptp_dev_t *ptp_regs, uint8_t freq_select)
+{
+    ptp_regs->pps_ctrl.pps_cmd0 = freq_select;
+}
+
 /************** End of ptp regs operation ********************/
+
+static inline soc_module_clk_t emac_ll_get_csr_clk_src(void)
+{
+    // Source of the ESP32P4 EMAC CRS clock is SYS clock.
+    return SOC_MOD_CLK_SYS;
+}
 
 /**
  * @brief Enable the bus clock for the EMAC module
@@ -830,7 +877,10 @@ static inline void emac_ll_enable_bus_clock(int group_id, bool enable)
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define emac_ll_enable_bus_clock(...) (void)__DECLARE_RCC_ATOMIC_ENV; emac_ll_enable_bus_clock(__VA_ARGS__)
+#define emac_ll_enable_bus_clock(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        emac_ll_enable_bus_clock(__VA_ARGS__); \
+    } while(0)
 
 static inline void _emac_ll_clock_force_en(bool enable)
 {
@@ -839,7 +889,10 @@ static inline void _emac_ll_clock_force_en(bool enable)
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define emac_ll_clock_force_en(...) (void)__DECLARE_RCC_ATOMIC_ENV; _emac_ll_clock_force_en(__VA_ARGS__)
+#define emac_ll_clock_force_en(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        _emac_ll_clock_force_en(__VA_ARGS__); \
+    } while(0)
 
 /**
  * @brief Reset the EMAC module
@@ -855,7 +908,10 @@ static inline void emac_ll_reset_register(int group_id)
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define emac_ll_reset_register(...) (void)__DECLARE_RCC_ATOMIC_ENV; emac_ll_reset_register(__VA_ARGS__)
+#define emac_ll_reset_register(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        emac_ll_reset_register(__VA_ARGS__); \
+    } while(0)
 
 static inline eth_data_interface_t emac_ll_get_phy_intf(void *ext_regs)
 {
@@ -887,7 +943,10 @@ static inline void emac_ll_clock_enable_mii(void *ext_regs)
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define emac_ll_clock_enable_mii(...) (void)__DECLARE_RCC_ATOMIC_ENV; emac_ll_clock_enable_mii(__VA_ARGS__)
+#define emac_ll_clock_enable_mii(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        emac_ll_clock_enable_mii(__VA_ARGS__); \
+    } while(0)
 
 static inline void emac_ll_clock_enable_rmii_input(void *ext_regs)
 {
@@ -913,7 +972,10 @@ static inline void emac_ll_clock_enable_rmii_input(void *ext_regs)
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define emac_ll_clock_enable_rmii_input(...) (void)__DECLARE_RCC_ATOMIC_ENV; emac_ll_clock_enable_rmii_input(__VA_ARGS__)
+#define emac_ll_clock_enable_rmii_input(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        emac_ll_clock_enable_rmii_input(__VA_ARGS__); \
+    } while(0)
 
 static inline void emac_ll_clock_rmii_rx_tx_div(void *ext_regs, int div)
 {
@@ -923,7 +985,10 @@ static inline void emac_ll_clock_rmii_rx_tx_div(void *ext_regs, int div)
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define emac_ll_clock_rmii_rx_tx_div(...) (void)__DECLARE_RCC_ATOMIC_ENV; emac_ll_clock_rmii_rx_tx_div(__VA_ARGS__)
+#define emac_ll_clock_rmii_rx_tx_div(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        emac_ll_clock_rmii_rx_tx_div(__VA_ARGS__); \
+    } while(0)
 
 static inline void emac_ll_clock_enable_rmii_output(void *ext_regs)
 {
@@ -934,7 +999,10 @@ static inline void emac_ll_clock_enable_rmii_output(void *ext_regs)
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define emac_ll_clock_enable_rmii_output(...) (void)__DECLARE_RCC_ATOMIC_ENV; emac_ll_clock_enable_rmii_output(__VA_ARGS__)
+#define emac_ll_clock_enable_rmii_output(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        emac_ll_clock_enable_rmii_output(__VA_ARGS__); \
+    } while(0)
 
 static inline void emac_ll_clock_enable_ptp(void *ext_regs, soc_periph_emac_ptp_clk_src_t clk_src, bool enable)
 {
@@ -958,7 +1026,10 @@ static inline void emac_ll_clock_enable_ptp(void *ext_regs, soc_periph_emac_ptp_
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define emac_ll_clock_enable_ptp(...) (void)__DECLARE_RCC_ATOMIC_ENV; emac_ll_clock_enable_ptp(__VA_ARGS__)
+#define emac_ll_clock_enable_ptp(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        emac_ll_clock_enable_ptp(__VA_ARGS__); \
+    } while(0)
 
 static inline void emac_ll_pause_frame_enable(void *ext_regs, bool enable)
 {

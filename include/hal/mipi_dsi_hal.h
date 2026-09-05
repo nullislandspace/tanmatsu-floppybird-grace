@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2023-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2023-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -30,8 +30,9 @@ typedef struct dsi_brg_dev_t *mipi_dsi_bridge_soc_handle_t;
 typedef struct {
     mipi_dsi_host_soc_handle_t host;     /*!< Pointer to the host controller registers */
     mipi_dsi_bridge_soc_handle_t bridge; /*!< Pointer to the bridge controller registers */
-    uint32_t lane_bit_rate_mbps;         /*!< Lane bit rate in Mbps */
-    uint32_t dpi_clock_freq_mhz;         /*!< DPI clock frequency in MHz */
+    float lane_bit_rate_mbps;            /*!< Lane bit rate in Mbps */
+    float expect_dpi_clock_freq_mhz;     /*!< Expected DPI clock frequency in MHz */
+    float real_dpi_clock_freq_mhz;       /*!< Real DPI clock frequency in MHz */
 } mipi_dsi_hal_context_t;
 
 /**
@@ -39,7 +40,7 @@ typedef struct {
  */
 typedef struct {
     int bus_id;                   /*!< MIPI DSI bus ID, index from 0 */
-    uint32_t lane_bit_rate_mbps;  /*!< Lane bit rate in Mbps */
+    float lane_bit_rate_mbps;     /*!< Lane bit rate in Mbps */
     uint8_t num_data_lanes;       /*!< Number of data lanes */
 } mipi_dsi_hal_config_t;
 
@@ -67,7 +68,7 @@ void mipi_dsi_hal_deinit(mipi_dsi_hal_context_t *hal);
  * @param phy_clk_src_freq_hz PHY clock source frequency in Hz
  * @param lane_bit_rate_mbps Lane bit rate in Mbps
  */
-void mipi_dsi_hal_configure_phy_pll(mipi_dsi_hal_context_t *hal, uint32_t phy_clk_src_freq_hz, uint32_t lane_bit_rate_mbps);
+void mipi_dsi_hal_configure_phy_pll(mipi_dsi_hal_context_t *hal, uint32_t phy_clk_src_freq_hz, float lane_bit_rate_mbps);
 
 /**
  * @brief Write a value to a PHY register via internal bus (so-called test interface)
@@ -144,15 +145,6 @@ void mipi_dsi_hal_host_gen_read_short_packet(mipi_dsi_hal_context_t *hal, uint8_
                                              mipi_dsi_data_type_t dt, uint16_t header_data, void *ret_buffer, uint16_t buffer_size);
 
 /**
- * @brief Set DPI color coding
- *
- * @param hal Pointer to the HAL driver context
- * @param color_coding Color coding
- * @param sub_config Sub configuration
- */
-void mipi_dsi_hal_host_dpi_set_color_coding(mipi_dsi_hal_context_t *hal, lcd_color_format_t color_coding, uint32_t sub_config);
-
-/**
  * @brief Set horizontal timing parameters for DPI
  *
  * @param hal Pointer to the HAL driver context
@@ -184,7 +176,7 @@ void mipi_dsi_hal_host_dpi_set_vertical_timing(mipi_dsi_hal_context_t *hal, uint
  * @param expect_dpi_clk_mhz Expected DPI clock frequency in MHz
  * @return Divider value
  */
-uint32_t mipi_dsi_hal_host_dpi_calculate_divider(mipi_dsi_hal_context_t *hal, uint32_t clk_src_mhz, uint32_t expect_dpi_clk_mhz);
+uint32_t mipi_dsi_hal_host_dpi_calculate_divider(mipi_dsi_hal_context_t *hal, float clk_src_mhz, float expect_dpi_clk_mhz);
 
 #ifdef __cplusplus
 

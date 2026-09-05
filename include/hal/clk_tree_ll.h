@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -7,7 +7,6 @@
 #pragma once
 
 #include <stdint.h>
-#include "soc/clkout_channel.h"
 #include "soc/soc.h"
 #include "soc/chip_revision.h"
 #include "soc/clk_tree_defs.h"
@@ -16,6 +15,7 @@
 #include "soc/lp_clkrst_reg.h"
 #include "soc/lp_clkrst_struct.h"
 #include "soc/pmu_reg.h"
+#include "hal/clkout_channel.h"
 #include "hal/regi2c_ctrl.h"
 #include "soc/regi2c_cpll.h"
 #include "soc/regi2c_apll.h"
@@ -28,15 +28,12 @@
 #include "hal/efuse_hal.h"
 #include "esp_private/regi2c_ctrl.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #define MHZ                 (1000000)
 
 #define CLK_LL_PLL_8M_FREQ_MHZ     (8)
 
 #define CLK_LL_PLL_80M_FREQ_MHZ    (80)
+#define CLK_LL_PLL_120M_FREQ_MHZ   (120)
 #define CLK_LL_PLL_160M_FREQ_MHZ   (160)
 #define CLK_LL_PLL_240M_FREQ_MHZ   (240)
 #define CLK_LL_PLL_SDIO_FREQ_MHZ   (200)
@@ -63,8 +60,8 @@ extern "C" {
 #define CLK_LL_APLL_MULTIPLIER_MAX_HZ (500000000) // 500 MHz
 
 /* APLL output frequency range */
-#define CLK_LL_APLL_MIN_HZ    (5303031)   // 5.303031 MHz, refer to 'periph_rtc_apll_freq_set' for the calculation
-#define CLK_LL_APLL_MAX_HZ    (125000000) // 125MHz, refer to 'periph_rtc_apll_freq_set' for the calculation
+#define CLK_LL_APLL_MIN_HZ    (5303031)   // 5.303031 MHz, refer to 'esp_clk_tree_apll_freq_set' for the calculation
+#define CLK_LL_APLL_MAX_HZ    (125000000) // 125MHz, refer to 'esp_clk_tree_apll_freq_set' for the calculation
 
 #define CLK_LL_XTAL32K_CONFIG_DEFAULT() { \
     .dac = 3, \
@@ -72,6 +69,10 @@ extern "C" {
     .dgm = 3, \
     .dbuf = 1, \
 }
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /**
  * @brief XTAL32K_CLK enable modes
@@ -90,7 +91,6 @@ typedef struct {
     uint32_t dgm : 3;
     uint32_t dbuf: 1;
 } clk_ll_xtal32k_config_t;
-
 
 /**
  * @brief Power up CPLL circuit
@@ -180,6 +180,7 @@ static inline __attribute__((always_inline)) void clk_ll_xtal32k_enable(clk_ll_x
     LP_AON_CLKRST.xtal32k.dbuf_xtal32k = cfg.dbuf;
     // Enable xtal32k xpd
     SET_PERI_REG_MASK(PMU_HP_SLEEP_LP_CK_POWER_REG, PMU_HP_SLEEP_XPD_XTAL32K);
+    REG_SET_BIT(LP_CLKRST_HP_CLK_CTRL_REG, LP_CLKRST_HP_XTAL_32K_CLK_EN);
 }
 
 /**
@@ -187,6 +188,7 @@ static inline __attribute__((always_inline)) void clk_ll_xtal32k_enable(clk_ll_x
  */
 static inline __attribute__((always_inline)) void clk_ll_xtal32k_disable(void)
 {
+    REG_CLR_BIT(LP_CLKRST_HP_CLK_CTRL_REG, LP_CLKRST_HP_XTAL_32K_CLK_EN);
     // Disable xtal32k xpd
     CLEAR_PERI_REG_MASK(PMU_HP_SLEEP_LP_CK_POWER_REG, PMU_HP_SLEEP_XPD_XTAL32K);
 }
@@ -206,6 +208,7 @@ static inline __attribute__((always_inline)) bool clk_ll_xtal32k_is_enabled(void
  */
 static inline __attribute__((always_inline)) void clk_ll_rc32k_enable(void)
 {
+    REG_SET_BIT(LP_CLKRST_HP_CLK_CTRL_REG, LP_CLKRST_HP_RC_32K_CLK_EN);
     // Enable rc32k xpd status
     SET_PERI_REG_MASK(PMU_HP_SLEEP_LP_CK_POWER_REG, PMU_HP_SLEEP_XPD_RC32K);
 }
@@ -217,6 +220,7 @@ static inline __attribute__((always_inline)) void clk_ll_rc32k_disable(void)
 {
     // Disable rc32k xpd status
     CLEAR_PERI_REG_MASK(PMU_HP_SLEEP_LP_CK_POWER_REG, PMU_HP_SLEEP_XPD_RC32K);
+    REG_CLR_BIT(LP_CLKRST_HP_CLK_CTRL_REG, LP_CLKRST_HP_RC_32K_CLK_EN);
 }
 
 /**
@@ -413,7 +417,7 @@ static inline __attribute__((always_inline)) void clk_ll_cpll_set_config(uint32_
 
     uint8_t i2c_cpll_lref  = (oc_enb_fcal << I2C_CPLL_OC_ENB_FCAL_LSB) | (dchgp << I2C_CPLL_OC_DCHGP_LSB) | (div_ref);
     uint8_t i2c_cpll_div_7_0 = div7_0;
-    uint8_t i2c_cpll_dcur = (1 << I2C_CPLL_OC_DLREF_SEL_LSB ) | (3 << I2C_CPLL_OC_DHREF_SEL_LSB) | dcur;
+    uint8_t i2c_cpll_dcur = (1 << I2C_CPLL_OC_DLREF_SEL_LSB) | (3 << I2C_CPLL_OC_DHREF_SEL_LSB) | dcur;
     // There are sequential regi2c operations in `clk_ll_cpll_set_config`, use the raw regi2c API with one lock wrapper to save time.
     REGI2C_ENTER_CRITICAL();
     esp_rom_regi2c_write(I2C_CPLL, I2C_CPLL_HOSTID, I2C_CPLL_OC_REF_DIV, i2c_cpll_lref);
@@ -446,6 +450,8 @@ static inline __attribute__((always_inline)) void clk_ll_mpll_set_config(uint32_
 {
     HAL_ASSERT(xtal_freq_mhz == SOC_XTAL_FREQ_40M);
 
+    // There are sequential regi2c operations in `clk_ll_mpll_set_config`, use the raw regi2c API with one lock wrapper to save time.
+    REGI2C_ENTER_CRITICAL();
     uint8_t mpll_dhref_val = esp_rom_regi2c_read(I2C_MPLL, I2C_MPLL_HOSTID, I2C_MPLL_DHREF);
     esp_rom_regi2c_write(I2C_MPLL, I2C_MPLL_HOSTID, I2C_MPLL_DHREF,  mpll_dhref_val | (3 << I2C_MPLL_DHREF_LSB));
     uint8_t mpll_rstb_val = esp_rom_regi2c_read(I2C_MPLL, I2C_MPLL_HOSTID, I2C_MPLL_IR_CAL_RSTB);
@@ -457,6 +463,7 @@ static inline __attribute__((always_inline)) void clk_ll_mpll_set_config(uint32_
     uint8_t div = mpll_freq_mhz / 20 - 1;
     uint8_t val = ((div << 3) | ref_div);
     esp_rom_regi2c_write(I2C_MPLL, I2C_MPLL_HOSTID, I2C_MPLL_DIV_REG_ADDR, val);
+    REGI2C_EXIT_CRITICAL();
 }
 
 /**
@@ -722,6 +729,76 @@ static inline __attribute__((always_inline)) uint32_t clk_ll_pll_f20m_get_divide
 }
 
 /**
+ * @brief Select the frequency calculation clock source for timergroup0
+ *
+ * @param clk_sel One of the clock sources in soc_clk_freq_calculation_src_t
+ */
+static inline __attribute__((always_inline)) void clk_ll_freq_calulation_set_target(soc_clk_freq_calculation_src_t clk_sel)
+{
+    int timg_cali_clk_sel = -1;
+
+    switch (clk_sel) {
+    case CLK_CAL_MPLL:
+        timg_cali_clk_sel = 0;
+        break;
+    case CLK_CAL_SPLL:
+        timg_cali_clk_sel = 1;
+        break;
+    case CLK_CAL_CPLL:
+        timg_cali_clk_sel = 2;
+        break;
+    case CLK_CAL_APLL:
+        timg_cali_clk_sel = 3;
+        break;
+    case CLK_CAL_SDIO_PLL0:
+        timg_cali_clk_sel = 4;
+        break;
+    case CLK_CAL_SDIO_PLL1:
+        timg_cali_clk_sel = 5;
+        break;
+    case CLK_CAL_SDIO_PLL2:
+        timg_cali_clk_sel = 6;
+        break;
+    case CLK_CAL_RC_FAST:
+        timg_cali_clk_sel = 7;
+        break;
+    case CLK_CAL_RC_SLOW:
+        timg_cali_clk_sel = 8;
+        break;
+    case CLK_CAL_RC32K:
+        timg_cali_clk_sel = 9;
+        break;
+    case CLK_CAL_32K_XTAL:
+        timg_cali_clk_sel = 10;
+        break;
+    case CLK_CAL_LP_PLL:
+        timg_cali_clk_sel = 11;
+        break;
+    case CLK_CAL_DSI_DPHY:
+        timg_cali_clk_sel = 12;
+        break;
+    default:
+        // Unsupported CLK_CAL mux input
+        abort();
+    }
+
+    if (timg_cali_clk_sel >= 0) {
+        HP_SYS_CLKRST.peri_clk_ctrl21.reg_timergrp0_tgrt_clk_src_sel = timg_cali_clk_sel;
+    }
+}
+
+/**
+ * @brief Set a divider for the clock to be frequency calculated by timergroup0
+ *
+ * @param divider Divider. PRE_DIV_CNT = divider - 1.
+ */
+static inline __attribute__((always_inline)) void clk_ll_freq_calculation_set_divider(uint32_t divider)
+{
+    HAL_ASSERT(divider >= 1);
+    HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.peri_clk_ctrl21, reg_timergrp0_tgrt_clk_div_num, divider - 1);
+}
+
+/**
  * @brief Select the clock source for RTC_SLOW_CLK
  *
  * @param in_sel One of the clock sources in soc_rtc_slow_clk_src_t
@@ -894,6 +971,58 @@ static inline __attribute__((always_inline)) void clk_ll_rc_slow_set_divider(uin
     HAL_ASSERT(divider == 1);
 }
 
+/************************** CLOCK OUTPUT **************************/
+/**
+ * @brief Clock output channel configuration
+ *
+ * @param clk_sig The clock signal source to be mapped to GPIOs
+ * @param channel_id The clock output channel ID
+ */
+static inline __attribute__((always_inline)) void clk_ll_bind_output_channel(soc_clkout_sig_id_t clk_sig, clock_out_channel_t channel_id)
+{
+    if (channel_id == CLKOUT_CHANNEL_1) {
+        HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.dbg_clk_ctrl0, reg_dbg_ch0_sel, clk_sig);
+    } else if (channel_id == CLKOUT_CHANNEL_2) {
+        HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.dbg_clk_ctrl0, reg_dbg_ch1_sel, clk_sig);
+    } else {
+        abort();
+    }
+}
+
+/**
+ * @brief Enable the clock output channel
+ *
+ * @param channel_id The clock output channel ID
+ * @param  enable Enable or disable the clock output channel
+ */
+static inline __attribute__((always_inline)) void clk_ll_enable_output_channel(clock_out_channel_t channel_id, bool enable)
+{
+    if (channel_id == CLKOUT_CHANNEL_1) {
+        HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.dbg_clk_ctrl1, reg_dbg_ch0_en, enable);
+    } else if (channel_id == CLKOUT_CHANNEL_2) {
+        HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.dbg_clk_ctrl1, reg_dbg_ch1_en, enable);
+    } else {
+        abort();
+    }
+}
+
+/**
+ * @brief Output the mapped clock after frequency division
+ *
+ * @param channel_id The clock output channel ID
+ * @param divider Clock frequency division value
+ */
+static inline __attribute__((always_inline)) void clk_ll_set_output_channel_divider(clock_out_channel_t channel_id, uint32_t div_num)
+{
+    if (channel_id == CLKOUT_CHANNEL_1) {
+        HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.dbg_clk_ctrl0, reg_dbg_ch0_div_num, div_num - 1);
+    } else if (channel_id == CLKOUT_CHANNEL_2) {
+        HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.dbg_clk_ctrl1, reg_dbg_ch1_div_num, div_num - 1);
+    } else {
+        abort();
+    }
+}
+
 /************************** LP STORAGE REGISTER STORE/LOAD **************************/
 /**
  * @brief Store XTAL_CLK frequency in RTC storage register
@@ -929,7 +1058,7 @@ static inline __attribute__((always_inline)) uint32_t clk_ll_xtal_load_freq_mhz(
     // Read from RTC storage register
     uint32_t xtal_freq_reg = READ_PERI_REG(RTC_XTAL_FREQ_REG);
     if ((xtal_freq_reg & 0xFFFF) == ((xtal_freq_reg >> 16) & 0xFFFF) &&
-        xtal_freq_reg != 0 && xtal_freq_reg != UINT32_MAX) {
+            xtal_freq_reg != 0 && xtal_freq_reg != UINT32_MAX) {
         return xtal_freq_reg & ~RTC_DISABLE_ROM_LOG & UINT16_MAX;
     }
     // If the format in reg is invalid
@@ -959,53 +1088,6 @@ static inline __attribute__((always_inline)) void clk_ll_rtc_slow_store_cal(uint
 static inline __attribute__((always_inline)) uint32_t clk_ll_rtc_slow_load_cal(void)
 {
     return REG_READ(RTC_SLOW_CLK_CAL_REG);
-}
-
-/**
- * @brief Clock output channel configuration
- * @param clk_sig    The clock signal source to be mapped to GPIOs
- * @param channel_id The clock output channel to setup
- */
-static inline __attribute__((always_inline)) void clk_ll_set_dbg_clk_ctrl(soc_clkout_sig_id_t clk_sig, clock_out_channel_t channel_id)
-{
-    if (channel_id == CLKOUT_CHANNEL_1) {
-        HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.dbg_clk_ctrl0, reg_dbg_ch0_sel, clk_sig);
-    } else if (channel_id == CLKOUT_CHANNEL_2) {
-        HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.dbg_clk_ctrl0, reg_dbg_ch1_sel, clk_sig);
-    } else {
-        abort();
-    }
-}
-
-/**
- * @brief Enable the clock output channel
- * @param  enable Enable or disable the clock output channel
- */
-static inline __attribute__((always_inline)) void clk_ll_enable_dbg_clk_channel(clock_out_channel_t channel_id, bool enable)
-{
-    if (channel_id == CLKOUT_CHANNEL_1) {
-        HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.dbg_clk_ctrl1, reg_dbg_ch0_en, enable);
-    } else if (channel_id == CLKOUT_CHANNEL_2) {
-        HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.dbg_clk_ctrl1, reg_dbg_ch1_en, enable);
-    } else {
-        abort();
-    }
-}
-
-/**
- * @brief Output the mapped clock after frequency division
- * @param channel_id channel id that need to be configured with frequency division
- * @param div_num  clock frequency division value
- */
-static inline __attribute__((always_inline)) void clk_ll_set_dbg_clk_channel_divider(clock_out_channel_t channel_id, uint32_t div_num)
-{
-    if (channel_id == CLKOUT_CHANNEL_1) {
-        HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.dbg_clk_ctrl0, reg_dbg_ch0_div_num, div_num - 1);
-    } else if (channel_id == CLKOUT_CHANNEL_2) {
-        HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.dbg_clk_ctrl1, reg_dbg_ch1_div_num, div_num - 1);
-    } else {
-        abort();
-    }
 }
 
 #ifdef __cplusplus

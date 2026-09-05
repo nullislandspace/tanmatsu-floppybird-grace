@@ -17,24 +17,23 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include "soc/soc.h"
-#include "soc/gpio_periph.h"
 #include "soc/gpio_struct.h"
 #include "soc/io_mux_reg.h"
 #include "soc/io_mux_struct.h"
 #include "soc/hp_system_struct.h"
+#include "soc/lp_system_struct.h"
 #include "soc/lp_iomux_struct.h"
 #include "soc/hp_sys_clkrst_struct.h"
 #include "soc/pmu_struct.h"
 #include "soc/usb_serial_jtag_struct.h"
 #include "soc/usb_wrap_struct.h"
 #include "soc/clk_tree_defs.h"
+#include "soc/interrupts.h"
 #include "hal/gpio_types.h"
 #include "hal/misc.h"
 #include "hal/assert.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include "hal/config.h"
+#include "rom/gpio.h"
 
 // Get GPIO hardware instance with giving gpio num
 #define GPIO_LL_GET_HW(num) (((num) == 0) ? (&GPIO) : NULL)
@@ -45,6 +44,10 @@ extern "C" {
 #define GPIO_LL_INTR3_ENA      (BIT(4))
 
 #define GPIO_LL_INTR_SOURCE0   ETS_GPIO_INTR0_SOURCE
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /**
  * @brief Get the configuration for an IO
@@ -373,21 +376,6 @@ static inline void gpio_ll_od_enable(gpio_dev_t *hw, uint32_t gpio_num)
 }
 
 /**
- * @brief Disconnect any peripheral output signal routed via GPIO matrix to the pin
- *
- * @param  hw Peripheral GPIO hardware instance address.
- * @param  gpio_num GPIO number
- */
-__attribute__((always_inline))
-static inline void gpio_ll_matrix_out_default(gpio_dev_t *hw, uint32_t gpio_num)
-{
-    gpio_func_out_sel_cfg_reg_t reg = {
-      .out_sel = SIG_GPIO_OUT_IDX,
-    };
-    hw->func_out_sel_cfg[gpio_num].val = reg.val;
-}
-
-/**
  * @brief  GPIO set output level
  *
  * @param  hw Peripheral GPIO hardware instance address.
@@ -397,6 +385,9 @@ static inline void gpio_ll_matrix_out_default(gpio_dev_t *hw, uint32_t gpio_num)
 __attribute__((always_inline))
 static inline void gpio_ll_set_level(gpio_dev_t *hw, uint32_t gpio_num, uint32_t level)
 {
+#if HAL_CONFIG(GPIO_USE_ROM_API)
+    rom_gpio_set_output_level(gpio_num, level);
+#else
     if (level) {
         if (gpio_num < 32) {
             hw->out_w1ts.val = 1 << gpio_num;
@@ -410,6 +401,7 @@ static inline void gpio_ll_set_level(gpio_dev_t *hw, uint32_t gpio_num, uint32_t
             hw->out1_w1tc.val = 1 << (gpio_num - 32);
         }
     }
+#endif
 }
 
 /**
@@ -427,11 +419,15 @@ static inline void gpio_ll_set_level(gpio_dev_t *hw, uint32_t gpio_num, uint32_t
 __attribute__((always_inline))
 static inline int gpio_ll_get_level(gpio_dev_t *hw, uint32_t gpio_num)
 {
+#if HAL_CONFIG(GPIO_USE_ROM_API)
+    return rom_gpio_get_input_level(gpio_num);
+#else
     if (gpio_num < 32) {
         return (hw->in.in_data_next >> gpio_num) & 0x1;
     } else {
         return (hw->in1.in1_data_next >> (gpio_num - 32)) & 0x1;
     }
+#endif
 }
 
 /**
@@ -494,6 +490,13 @@ static inline void gpio_ll_get_drive_capability(gpio_dev_t *hw, uint32_t gpio_nu
 __attribute__((always_inline))
 static inline void gpio_ll_hold_en(gpio_dev_t *hw, uint32_t gpio_num)
 {
+#if HAL_CONFIG(CHIP_SUPPORT_MIN_REV) >= 300
+    if (gpio_num < 32) {
+        LP_SYS.pad_rtc_hold_ctrl0.pad_rtc_hold_ctrl0 |= (1 << gpio_num);
+    } else {
+        LP_SYS.pad_rtc_hold_ctrl1.pad_rtc_hold_ctrl1 |= (1 << (gpio_num - 32));
+    }
+#else
     uint64_t bit_mask = 1ULL << gpio_num;
     if (!(bit_mask & SOC_GPIO_VALID_DIGITAL_IO_PAD_MASK)) {
         // GPIO 0-15
@@ -509,6 +512,7 @@ static inline void gpio_ll_hold_en(gpio_dev_t *hw, uint32_t gpio_num)
             HP_SYSTEM.gpio_o_hold_ctrl1.reg_gpio_0_hold_high |= (bit_mask >> (32 + SOC_RTCIO_PIN_COUNT));
         }
     }
+#endif
 }
 
 /**
@@ -520,6 +524,13 @@ static inline void gpio_ll_hold_en(gpio_dev_t *hw, uint32_t gpio_num)
 __attribute__((always_inline))
 static inline void gpio_ll_hold_dis(gpio_dev_t *hw, uint32_t gpio_num)
 {
+#if HAL_CONFIG(CHIP_SUPPORT_MIN_REV) >= 300
+    if (gpio_num < 32) {
+        LP_SYS.pad_rtc_hold_ctrl0.pad_rtc_hold_ctrl0 &= ~(1 << gpio_num);
+    } else {
+        LP_SYS.pad_rtc_hold_ctrl1.pad_rtc_hold_ctrl1 &= ~(1 << (gpio_num - 32));
+    }
+#else
     uint64_t bit_mask = 1ULL << gpio_num;
     if (!(bit_mask & SOC_GPIO_VALID_DIGITAL_IO_PAD_MASK)) {
         // GPIO 0-15
@@ -535,6 +546,7 @@ static inline void gpio_ll_hold_dis(gpio_dev_t *hw, uint32_t gpio_num)
             HP_SYSTEM.gpio_o_hold_ctrl1.reg_gpio_0_hold_high &= ~(bit_mask >> (32 + SOC_RTCIO_PIN_COUNT));
         }
     }
+#endif
 }
 
 /**
@@ -557,6 +569,13 @@ static inline bool gpio_ll_is_digital_io_hold(gpio_dev_t *hw, uint32_t gpio_num)
         // GPIO 0-15
         abort();
     } else {
+#if HAL_CONFIG(CHIP_SUPPORT_MIN_REV) >= 300
+        if (gpio_num < 32) {
+            return !!(LP_SYS.pad_rtc_hold_ctrl0.pad_rtc_hold_ctrl0 & (1 << gpio_num));
+        } else {
+            return !!(LP_SYS.pad_rtc_hold_ctrl1.pad_rtc_hold_ctrl1 & (1 << (gpio_num - 32)));
+        }
+#else
         if (gpio_num < 32 + SOC_RTCIO_PIN_COUNT) {
             // GPIO 16-47
             return !!(HP_SYSTEM.gpio_o_hold_ctrl0.reg_gpio_0_hold_low & (bit_mask >> SOC_RTCIO_PIN_COUNT));
@@ -564,6 +583,7 @@ static inline bool gpio_ll_is_digital_io_hold(gpio_dev_t *hw, uint32_t gpio_num)
             // GPIO 48-54
             return !!(HP_SYSTEM.gpio_o_hold_ctrl1.reg_gpio_0_hold_high & (bit_mask >> (32 + SOC_RTCIO_PIN_COUNT)));
         }
+#endif
     }
 }
 
@@ -581,7 +601,41 @@ static inline void gpio_ll_set_input_signal_from(gpio_dev_t *hw, uint32_t signal
 }
 
 /**
-  * @brief Configure the source of output enable signal for the GPIO pin.
+ * @brief Connect a GPIO input with a peripheral signal, which tagged as input attribute.
+ *
+ * @note There's no limitation on the number of signals that a GPIO can combine with.
+ *
+ * @param signal_idx Peripheral signal index (tagged as input attribute)
+ * @param gpio_num GPIO number, especially, `GPIO_MATRIX_CONST_ZERO_INPUT` means connect logic 0 to signal
+ *                                          `GPIO_MATRIX_CONST_ONE_INPUT` means connect logic 1 to signal
+ * @param in_inv True if the GPIO input needs to be inverted, otherwise False.
+ */
+static inline void gpio_ll_set_input_signal_matrix_source(gpio_dev_t *hw, uint32_t signal_idx, uint32_t gpio_num, bool in_inv)
+{
+    hw->func_in_sel_cfg[signal_idx].in_sel = gpio_num;
+    hw->func_in_sel_cfg[signal_idx].in_inv_sel = in_inv;
+    gpio_ll_set_input_signal_from(hw, signal_idx, true);
+}
+
+/**
+ * @brief Get the GPIO number that is routed to the input peripheral signal through GPIO matrix.
+ *
+ * @param hw Peripheral GPIO hardware instance address.
+ * @param in_sig_idx Peripheral signal index (tagged as input attribute).
+ *
+ * @return
+ *    - -1     Signal bypassed GPIO matrix
+ *    - Others GPIO number
+ */
+static inline int gpio_ll_get_in_signal_connected_io(gpio_dev_t *hw, uint32_t in_sig_idx)
+{
+    gpio_func_in_sel_cfg_reg_t reg;
+    reg.val = hw->func_in_sel_cfg[in_sig_idx].val;
+    return (reg.sig_in_sel ? reg.in_sel : -1);
+}
+
+/**
+  * @brief Configure the source of output enable signal for the pad (only takes effect if func sel is selected to be GPIO).
   *
   * @param hw Peripheral GPIO hardware instance address.
   * @param gpio_num GPIO number of the pad.
@@ -592,6 +646,21 @@ static inline void gpio_ll_set_output_enable_ctrl(gpio_dev_t *hw, uint8_t gpio_n
 {
     hw->func_out_sel_cfg[gpio_num].oen_inv_sel = oen_inv;       // control valid only when using gpio matrix to route signal to the IO
     hw->func_out_sel_cfg[gpio_num].oen_sel = !ctrl_by_periph;
+}
+
+/**
+ * @brief Connect a peripheral signal which tagged as output attribute with a GPIO.
+ *
+ * @note There's no limitation on the number of signals that a GPIO can combine with.
+ *
+ * @param gpio_num GPIO number
+ * @param signal_idx Peripheral signal index (tagged as output attribute). Particularly, `SIG_GPIO_OUT_IDX` means disconnect GPIO and other peripherals. Only the GPIO driver can control the output level.
+ * @param out_inv True if the signal output needs to be inverted, otherwise False.
+ */
+static inline void gpio_ll_set_output_signal_matrix_source(gpio_dev_t *hw, uint32_t gpio_num, uint32_t signal_idx, bool out_inv)
+{
+    hw->func_out_sel_cfg[gpio_num].out_sel = signal_idx;
+    hw->func_out_sel_cfg[gpio_num].out_inv_sel = out_inv;
 }
 
 /**
@@ -637,24 +706,10 @@ static inline void gpio_ll_iomux_set_clk_src(soc_module_clk_t src)
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define gpio_ll_iomux_set_clk_src(...) (void)__DECLARE_RCC_ATOMIC_ENV; gpio_ll_iomux_set_clk_src(__VA_ARGS__)
-
-/**
- * @brief Get the GPIO number that is routed to the input peripheral signal through GPIO matrix.
- *
- * @param hw Peripheral GPIO hardware instance address.
- * @param in_sig_idx Peripheral signal index (tagged as input attribute).
- *
- * @return
- *    - -1     Signal bypassed GPIO matrix
- *    - Others GPIO number
- */
-static inline int gpio_ll_get_in_signal_connected_io(gpio_dev_t *hw, uint32_t in_sig_idx)
-{
-    gpio_func_in_sel_cfg_reg_t reg;
-    reg.val = hw->func_in_sel_cfg[in_sig_idx].val;
-    return (reg.sig_in_sel ? reg.in_sel : -1);
-}
+#define gpio_ll_iomux_set_clk_src(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        gpio_ll_iomux_set_clk_src(__VA_ARGS__); \
+    } while(0)
 
 /**
   * @brief Force hold digital io pad.
@@ -796,7 +851,6 @@ static inline void gpio_ll_sleep_output_enable(gpio_dev_t *hw, uint32_t gpio_num
 {
     IO_MUX.gpio[gpio_num].mcu_oe = 1;
 }
-
 
 #ifdef __cplusplus
 }

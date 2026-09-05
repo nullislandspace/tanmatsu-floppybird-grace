@@ -36,8 +36,20 @@ set(CMAKE_RANLIB "${TOOLCHAIN_DIR}/riscv32-esp-elf-ranlib")
 set(CMAKE_OBJCOPY "${TOOLCHAIN_DIR}/riscv32-esp-elf-objcopy")
 set(CMAKE_SIZE "${TOOLCHAIN_DIR}/riscv32-esp-elf-size")
 
-set(CMAKE_C_FLAGS_INIT "-march=rv32imafc_zicsr_zifencei_xesppie -mabi=ilp32f")
-set(CMAKE_CXX_FLAGS_INIT "-march=rv32imafc_zicsr_zifencei_xesppie -mabi=ilp32f")
+# ESP-IDF 6 builds against PicoLibC rather than the toolchain's default
+# newlib. The graceloader is compiled that way, so apps must use the same
+# libc headers or they pick up incompatible newlib stdio/stdlib definitions.
+set(PICOLIBC_INCLUDE "${TOOLCHAIN_DIR}/../picolibc/include")
+if(EXISTS "${PICOLIBC_INCLUDE}")
+    get_filename_component(PICOLIBC_INCLUDE "${PICOLIBC_INCLUDE}" ABSOLUTE)
+    set(LIBC_FLAGS " -isystem ${PICOLIBC_INCLUDE}")
+else()
+    set(LIBC_FLAGS "")
+endif()
+
+set(ARCH_FLAGS "-march=rv32imafc_zicsr_zifencei_zaamo_zalrsc_xesploop_xespv2p1 -mabi=ilp32f")
+set(CMAKE_C_FLAGS_INIT "${ARCH_FLAGS}${LIBC_FLAGS}")
+set(CMAKE_CXX_FLAGS_INIT "${ARCH_FLAGS}${LIBC_FLAGS}")
 
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)

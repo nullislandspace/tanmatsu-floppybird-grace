@@ -15,7 +15,7 @@
 #include "esp_err.h"
 #include "driver/sdmmc_types.h"
 #include "driver/sdmmc_default_configs.h"
-#include "driver/gpio.h"
+#include "soc/gpio_num.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -207,7 +207,7 @@ esp_err_t sdmmc_host_io_int_enable(int slot);
  *  - ESP_OK on success (interrupt received)
  *  - ESP_ERR_TIMEOUT if the interrupt did not occur within timeout_ticks
  */
-esp_err_t sdmmc_host_io_int_wait(int slot, TickType_t timeout_ticks);
+esp_err_t sdmmc_host_io_int_wait(int slot, uint32_t timeout_ticks);
 
 /**
  * @brief Disable SDMMC host and release allocated resources gracefully
@@ -275,17 +275,21 @@ esp_err_t sdmmc_host_get_real_freq(int slot, int* real_freq_khz);
 esp_err_t sdmmc_host_set_input_delay(int slot, sdmmc_delay_phase_t delay_phase);
 
 /**
- * @brief Get the DMA memory information for the host driver
+ * @brief set input delayline
  *
- * @deprecated This API is deprecated
+ * - This API sets delay when the SDMMC Host samples the signal from the SD Slave.
+ * - This API will check if the given `delay_line` is valid or not.
+ * - This API will print out the delay time, in picosecond (ps)
  *
- * @param[in]  slot slot number (SDMMC_HOST_SLOT_0 or SDMMC_HOST_SLOT_1)
- * @param[out] dma_mem_info  DMA memory information structure
+ * @param slot         slot number (SDMMC_HOST_SLOT_0 or SDMMC_HOST_SLOT_1)
+ * @param delay_line   delay line, this API will convert the line into picoseconds and print it out
+ *
  * @return
  *        - ESP_OK:                ON success.
  *        - ESP_ERR_INVALID_ARG:   Invalid argument.
+ *        - ESP_ERR_NOT_SUPPORTED: Some chips don't support this feature.
  */
-esp_err_t sdmmc_host_get_dma_info(int slot, esp_dma_mem_info_t *dma_mem_info) __attribute__((deprecated("This API is deprecated")));
+esp_err_t sdmmc_host_set_input_delayline(int slot, sdmmc_delay_line_t delay_line);
 
 /**
  * @brief Check if the buffer meets the alignment requirements

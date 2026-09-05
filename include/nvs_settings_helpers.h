@@ -13,6 +13,10 @@ esp_err_t nvs_settings_get_u16(const char* key, uint16_t default_value, uint16_t
 esp_err_t nvs_settings_set_u16(const char* key, uint16_t value);
 esp_err_t nvs_settings_get_u32(const char* key, uint32_t default_value, uint32_t* out_value);
 esp_err_t nvs_settings_set_u32(const char* key, uint32_t value);
+esp_err_t nvs_settings_get_i32(const char* key, int32_t default_value, int32_t* out_value);
+esp_err_t nvs_settings_set_i32(const char* key, int32_t value);
+esp_err_t nvs_settings_get_bool(const char* key, bool default_value, bool* out_value);
+esp_err_t nvs_settings_set_bool(const char* key, bool value);
 esp_err_t nvs_settings_get_percentage(const char* key, uint8_t default_value, uint8_t* out_percentage);
 esp_err_t nvs_settings_set_percentage(const char* key, uint8_t percentage);
 esp_err_t nvs_settings_get_string(const char* key, const char* default_value, char* out_value, size_t max_length);

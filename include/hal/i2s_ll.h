@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2023-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2023-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -15,7 +15,6 @@
 #include <stdbool.h>
 #include "hal/misc.h"
 #include "hal/assert.h"
-#include "soc/i2s_periph.h"
 #include "soc/i2s_struct.h"
 #include "soc/soc_etm_struct.h"
 #include "soc/hp_sys_clkrst_struct.h"
@@ -23,7 +22,10 @@
 #include "soc/soc_etm_source.h"
 #include "hal/i2s_types.h"
 #include "hal/hal_utils.h"
+#include "hal/config.h"
 
+#define I2S_LL_GET(_attr)       I2S_LL_ ## _attr
+#define I2S_LL_INST_NUM         3
 
 #ifdef __cplusplus
 extern "C" {
@@ -37,14 +39,20 @@ extern "C" {
 
 #define I2S_LL_CLK_FRAC_DIV_N_MAX      256 // I2S_MCLK = I2S_SRC_CLK / (N + b/a), the N register is 8 bit-width
 #define I2S_LL_CLK_FRAC_DIV_AB_MAX     512 // I2S_MCLK = I2S_SRC_CLK / (N + b/a), the a/b register is 9 bit-width
-/* Add SOC_I2S_TDM_FULL_DATA_WIDTH in the soc_caps to indicate there is no limitation to support full data width (i.e., 16 slots * 32 bits) */
 #define I2S_LL_SLOT_FRAME_BIT_MAX      512 // Up-to 512 bits in one frame, determined by MAX(half_sample_bits) * 2
 
 #define I2S_LL_XTAL_CLK_FREQ           (40 * 1000000)   // XTAL_CLK: 40MHz
-#define I2S_LL_DEFAULT_CLK_FREQ        I2S_LL_XTAL_CLK_FREQ  // No PLL clock source on P4, use XTAL as default
+#if HAL_CONFIG(CHIP_SUPPORT_MIN_REV) >= 300
+#define I2S_LL_DEFAULT_CLK_FREQ        (160 * 1000000)  // PLL_F160M_CLK: 160MHz
+#define I2S_LL_DEFAULT_CLK_SRC         I2S_CLK_SRC_PLL_160M
+#else
+#define I2S_LL_DEFAULT_CLK_FREQ        I2S_LL_XTAL_CLK_FREQ  // No PLL clock source before version 3, use XTAL as default
+#define I2S_LL_DEFAULT_CLK_SRC         I2S_CLK_SRC_XTAL
+#endif
+#define I2S_LL_SUPPORT_XTAL            1    // Support XTAL as I2S clock source
 
 #define I2S_LL_ETM_EVENT_TABLE(i2s_port, chan_dir, event)  \
-    (uint32_t[SOC_I2S_NUM][2][I2S_ETM_EVENT_MAX]){  \
+    (uint32_t[I2S_LL_GET(INST_NUM)][2][I2S_ETM_EVENT_MAX]){  \
         [0] = {  \
             [I2S_DIR_RX - 1] = {  \
                 [I2S_ETM_EVENT_DONE] = I2S0_EVT_RX_DONE, \
@@ -77,9 +85,8 @@ extern "C" {
         },   \
     }[i2s_port][(chan_dir) - 1][event]
 
-
 #define I2S_LL_ETM_TASK_TABLE(i2s_port, chan_dir, task)  \
-    (uint32_t[SOC_I2S_NUM][2][I2S_ETM_TASK_MAX]){  \
+    (uint32_t[I2S_LL_GET(INST_NUM)][2][I2S_ETM_TASK_MAX]){  \
         [0] = {  \
             [I2S_DIR_RX - 1] = {  \
                 [I2S_ETM_TASK_START] = I2S0_TASK_START_RX, \
@@ -123,24 +130,27 @@ extern "C" {
 static inline void i2s_ll_enable_bus_clock(int i2s_id, bool enable)
 {
     switch (i2s_id) {
-        case 0:
-            HP_SYS_CLKRST.soc_clk_ctrl2.reg_i2s0_apb_clk_en = enable;
-            LP_AON_CLKRST.hp_clk_ctrl.hp_pad_i2s0_mclk_en = enable;
-            return;
-        case 1:
-            HP_SYS_CLKRST.soc_clk_ctrl2.reg_i2s1_apb_clk_en = enable;
-            LP_AON_CLKRST.hp_clk_ctrl.hp_pad_i2s1_mclk_en = enable;
-            return;
-        case 2:
-            HP_SYS_CLKRST.soc_clk_ctrl2.reg_i2s2_apb_clk_en = enable;
-            LP_AON_CLKRST.hp_clk_ctrl.hp_pad_i2s2_mclk_en = enable;
-            return;
+    case 0:
+        HP_SYS_CLKRST.soc_clk_ctrl2.reg_i2s0_apb_clk_en = enable;
+        LP_AON_CLKRST.hp_clk_ctrl.hp_pad_i2s0_mclk_en = enable;
+        return;
+    case 1:
+        HP_SYS_CLKRST.soc_clk_ctrl2.reg_i2s1_apb_clk_en = enable;
+        LP_AON_CLKRST.hp_clk_ctrl.hp_pad_i2s1_mclk_en = enable;
+        return;
+    case 2:
+        HP_SYS_CLKRST.soc_clk_ctrl2.reg_i2s2_apb_clk_en = enable;
+        LP_AON_CLKRST.hp_clk_ctrl.hp_pad_i2s2_mclk_en = enable;
+        return;
     }
 }
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define i2s_ll_enable_bus_clock(...) (void)__DECLARE_RCC_ATOMIC_ENV; i2s_ll_enable_bus_clock(__VA_ARGS__)
+#define i2s_ll_enable_bus_clock(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        i2s_ll_enable_bus_clock(__VA_ARGS__); \
+    } while(0)
 
 /**
  * @brief Reset the I2S module
@@ -150,24 +160,27 @@ static inline void i2s_ll_enable_bus_clock(int i2s_id, bool enable)
 static inline void i2s_ll_reset_register(int i2s_id)
 {
     switch (i2s_id) {
-        case 0:
-            HP_SYS_CLKRST.hp_rst_en2.reg_rst_en_i2s0_apb = 1;
-            HP_SYS_CLKRST.hp_rst_en2.reg_rst_en_i2s0_apb = 0;
-            return;
-        case 1:
-            HP_SYS_CLKRST.hp_rst_en2.reg_rst_en_i2s1_apb = 1;
-            HP_SYS_CLKRST.hp_rst_en2.reg_rst_en_i2s1_apb = 0;
-            return;
-        case 2:
-            HP_SYS_CLKRST.hp_rst_en2.reg_rst_en_i2s2_apb = 1;
-            HP_SYS_CLKRST.hp_rst_en2.reg_rst_en_i2s2_apb = 0;
-            return;
+    case 0:
+        HP_SYS_CLKRST.hp_rst_en2.reg_rst_en_i2s0_apb = 1;
+        HP_SYS_CLKRST.hp_rst_en2.reg_rst_en_i2s0_apb = 0;
+        return;
+    case 1:
+        HP_SYS_CLKRST.hp_rst_en2.reg_rst_en_i2s1_apb = 1;
+        HP_SYS_CLKRST.hp_rst_en2.reg_rst_en_i2s1_apb = 0;
+        return;
+    case 2:
+        HP_SYS_CLKRST.hp_rst_en2.reg_rst_en_i2s2_apb = 1;
+        HP_SYS_CLKRST.hp_rst_en2.reg_rst_en_i2s2_apb = 0;
+        return;
     }
 }
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define i2s_ll_reset_register(...) (void)__DECLARE_RCC_ATOMIC_ENV; i2s_ll_reset_register(__VA_ARGS__)
+#define i2s_ll_reset_register(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        i2s_ll_reset_register(__VA_ARGS__); \
+    } while(0)
 
 /**
  * @brief I2S module general init, enable I2S clock.
@@ -184,7 +197,10 @@ static inline void i2s_ll_enable_core_clock(i2s_dev_t *hw, bool enable)
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define i2s_ll_enable_core_clock(...) (void)__DECLARE_RCC_ATOMIC_ENV; i2s_ll_enable_core_clock(__VA_ARGS__)
+#define i2s_ll_enable_core_clock(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        i2s_ll_enable_core_clock(__VA_ARGS__); \
+    } while(0)
 
 /**
  * @brief Enable I2S tx module clock
@@ -195,21 +211,24 @@ static inline void _i2s_ll_tx_enable_clock(i2s_dev_t *hw)
 {
     // Note: this function involves HP_SYS_CLKRST register which is shared with other peripherals, need lock in upper layer
     switch (I2S_LL_GET_ID(hw)) {
-        case 0:
-            HP_SYS_CLKRST.peri_clk_ctrl13.reg_i2s0_tx_clk_en = 1;
-            return;
-        case 1:
-            HP_SYS_CLKRST.peri_clk_ctrl15.reg_i2s1_tx_clk_en = 1;
-            return;
-        case 2:
-            HP_SYS_CLKRST.peri_clk_ctrl18.reg_i2s2_tx_clk_en = 1;
-            return;
+    case 0:
+        HP_SYS_CLKRST.peri_clk_ctrl13.reg_i2s0_tx_clk_en = 1;
+        return;
+    case 1:
+        HP_SYS_CLKRST.peri_clk_ctrl15.reg_i2s1_tx_clk_en = 1;
+        return;
+    case 2:
+        HP_SYS_CLKRST.peri_clk_ctrl18.reg_i2s2_tx_clk_en = 1;
+        return;
     }
 }
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define i2s_ll_tx_enable_clock(...) (void)__DECLARE_RCC_ATOMIC_ENV; _i2s_ll_tx_enable_clock(__VA_ARGS__)
+#define i2s_ll_tx_enable_clock(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        _i2s_ll_tx_enable_clock(__VA_ARGS__); \
+    } while(0)
 
 /**
  * @brief Enable I2S rx module clock
@@ -220,21 +239,24 @@ static inline void _i2s_ll_rx_enable_clock(i2s_dev_t *hw)
 {
     // Note: this function involves HP_SYS_CLKRST register which is shared with other peripherals, need lock in upper layer
     switch (I2S_LL_GET_ID(hw)) {
-        case 0:
-            HP_SYS_CLKRST.peri_clk_ctrl11.reg_i2s0_rx_clk_en = 1;
-            return;
-        case 1:
-            HP_SYS_CLKRST.peri_clk_ctrl14.reg_i2s1_rx_clk_en = 1;
-            return;
-        case 2:
-            HP_SYS_CLKRST.peri_clk_ctrl17.reg_i2s2_rx_clk_en = 1;
-            return;
+    case 0:
+        HP_SYS_CLKRST.peri_clk_ctrl11.reg_i2s0_rx_clk_en = 1;
+        return;
+    case 1:
+        HP_SYS_CLKRST.peri_clk_ctrl14.reg_i2s1_rx_clk_en = 1;
+        return;
+    case 2:
+        HP_SYS_CLKRST.peri_clk_ctrl17.reg_i2s2_rx_clk_en = 1;
+        return;
     }
 }
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define i2s_ll_rx_enable_clock(...) (void)__DECLARE_RCC_ATOMIC_ENV; _i2s_ll_rx_enable_clock(__VA_ARGS__)
+#define i2s_ll_rx_enable_clock(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        _i2s_ll_rx_enable_clock(__VA_ARGS__); \
+    } while(0)
 
 /**
  * @brief Disable I2S tx module clock
@@ -245,21 +267,24 @@ static inline void i2s_ll_tx_disable_clock(i2s_dev_t *hw)
 {
     // Note: this function involves HP_SYS_CLKRST register which is shared with other peripherals, need lock in upper layer
     switch (I2S_LL_GET_ID(hw)) {
-        case 0:
-            HP_SYS_CLKRST.peri_clk_ctrl13.reg_i2s0_tx_clk_en = 0;
-            return;
-        case 1:
-            HP_SYS_CLKRST.peri_clk_ctrl15.reg_i2s1_tx_clk_en = 0;
-            return;
-        case 2:
-            HP_SYS_CLKRST.peri_clk_ctrl18.reg_i2s2_tx_clk_en = 0;
-            return;
+    case 0:
+        HP_SYS_CLKRST.peri_clk_ctrl13.reg_i2s0_tx_clk_en = 0;
+        return;
+    case 1:
+        HP_SYS_CLKRST.peri_clk_ctrl15.reg_i2s1_tx_clk_en = 0;
+        return;
+    case 2:
+        HP_SYS_CLKRST.peri_clk_ctrl18.reg_i2s2_tx_clk_en = 0;
+        return;
     }
 }
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define i2s_ll_tx_disable_clock(...) (void)__DECLARE_RCC_ATOMIC_ENV; i2s_ll_tx_disable_clock(__VA_ARGS__)
+#define i2s_ll_tx_disable_clock(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        i2s_ll_tx_disable_clock(__VA_ARGS__); \
+    } while(0)
 
 /**
  * @brief Disable I2S rx module clock
@@ -270,21 +295,24 @@ static inline void i2s_ll_rx_disable_clock(i2s_dev_t *hw)
 {
     // Note: this function involves HP_SYS_CLKRST register which is shared with other peripherals, need lock in upper layer
     switch (I2S_LL_GET_ID(hw)) {
-        case 0:
-            HP_SYS_CLKRST.peri_clk_ctrl11.reg_i2s0_rx_clk_en = 0;
-            return;
-        case 1:
-            HP_SYS_CLKRST.peri_clk_ctrl14.reg_i2s1_rx_clk_en = 0;
-            return;
-        case 2:
-            HP_SYS_CLKRST.peri_clk_ctrl17.reg_i2s2_rx_clk_en = 0;
-            return;
+    case 0:
+        HP_SYS_CLKRST.peri_clk_ctrl11.reg_i2s0_rx_clk_en = 0;
+        return;
+    case 1:
+        HP_SYS_CLKRST.peri_clk_ctrl14.reg_i2s1_rx_clk_en = 0;
+        return;
+    case 2:
+        HP_SYS_CLKRST.peri_clk_ctrl17.reg_i2s2_rx_clk_en = 0;
+        return;
     }
 }
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define i2s_ll_rx_disable_clock(...) (void)__DECLARE_RCC_ATOMIC_ENV; i2s_ll_rx_disable_clock(__VA_ARGS__)
+#define i2s_ll_rx_disable_clock(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        i2s_ll_rx_disable_clock(__VA_ARGS__); \
+    } while(0)
 
 /**
  * @brief I2S mclk use tx module clock
@@ -296,21 +324,24 @@ static inline void _i2s_ll_mclk_bind_to_tx_clk(i2s_dev_t *hw)
     // Note: this function involves HP_SYS_CLKRST register which is shared with other peripherals, need lock in upper layer
     // Special on P4, set mst_clk_sel to 1 means attach the mclk signal to TX module
     switch (I2S_LL_GET_ID(hw)) {
-        case 0:
-            HP_SYS_CLKRST.peri_clk_ctrl14.reg_i2s0_mst_clk_sel = 1;
-            return;
-        case 1:
-            HP_SYS_CLKRST.peri_clk_ctrl17.reg_i2s1_mst_clk_sel = 1;
-            return;
-        case 2:
-            HP_SYS_CLKRST.peri_clk_ctrl19.reg_i2s2_mst_clk_sel = 1;
-            return;
+    case 0:
+        HP_SYS_CLKRST.peri_clk_ctrl14.reg_i2s0_mst_clk_sel = 1;
+        return;
+    case 1:
+        HP_SYS_CLKRST.peri_clk_ctrl17.reg_i2s1_mst_clk_sel = 1;
+        return;
+    case 2:
+        HP_SYS_CLKRST.peri_clk_ctrl19.reg_i2s2_mst_clk_sel = 1;
+        return;
     }
 }
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define i2s_ll_mclk_bind_to_tx_clk(...) (void)__DECLARE_RCC_ATOMIC_ENV; _i2s_ll_mclk_bind_to_tx_clk(__VA_ARGS__)
+#define i2s_ll_mclk_bind_to_tx_clk(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        _i2s_ll_mclk_bind_to_tx_clk(__VA_ARGS__); \
+    } while(0)
 
 /**
  * @brief I2S mclk use rx module clock
@@ -322,21 +353,24 @@ static inline void _i2s_ll_mclk_bind_to_rx_clk(i2s_dev_t *hw)
     // Note: this function involves HP_SYS_CLKRST register which is shared with other peripherals, need lock in upper layer
     // Special on P4, set mst_clk_sel to 0 means attach the mclk signal to RX module
     switch (I2S_LL_GET_ID(hw)) {
-        case 0:
-            HP_SYS_CLKRST.peri_clk_ctrl14.reg_i2s0_mst_clk_sel = 0;
-            return;
-        case 1:
-            HP_SYS_CLKRST.peri_clk_ctrl17.reg_i2s1_mst_clk_sel = 0;
-            return;
-        case 2:
-            HP_SYS_CLKRST.peri_clk_ctrl19.reg_i2s2_mst_clk_sel = 0;
-            return;
+    case 0:
+        HP_SYS_CLKRST.peri_clk_ctrl14.reg_i2s0_mst_clk_sel = 0;
+        return;
+    case 1:
+        HP_SYS_CLKRST.peri_clk_ctrl17.reg_i2s1_mst_clk_sel = 0;
+        return;
+    case 2:
+        HP_SYS_CLKRST.peri_clk_ctrl19.reg_i2s2_mst_clk_sel = 0;
+        return;
     }
 }
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define i2s_ll_mclk_bind_to_rx_clk(...) (void)__DECLARE_RCC_ATOMIC_ENV; _i2s_ll_mclk_bind_to_rx_clk(__VA_ARGS__)
+#define i2s_ll_mclk_bind_to_rx_clk(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        _i2s_ll_mclk_bind_to_rx_clk(__VA_ARGS__); \
+    } while(0)
 
 /**
  * @brief Enable I2S TX slave mode
@@ -406,17 +440,25 @@ static inline void i2s_ll_rx_reset_fifo(i2s_dev_t *hw)
 
 static inline uint32_t i2s_ll_get_clk_src(i2s_clock_src_t src)
 {
-    switch (src)
-    {
-        case I2S_CLK_SRC_XTAL:
-            return 0;
-        case I2S_CLK_SRC_APLL:
-            return 1;
-        case I2S_CLK_SRC_EXTERNAL:
-            return 2;
-        default:
-            HAL_ASSERT(false && "unsupported clock source");
-            return -1;
+    switch (src) {
+    case I2S_CLK_SRC_XTAL:
+        return 0;
+    case I2S_CLK_SRC_APLL:
+        return 1;
+    case I2S_CLK_SRC_EXTERNAL:
+        return 2;
+    case I2S_CLK_SRC_DEFAULT:
+#if HAL_CONFIG(CHIP_SUPPORT_MIN_REV) >= 300
+        return 3;
+    // Only support PLL_160M on P4 ver3 and later
+    case I2S_CLK_SRC_PLL_160M:
+        return 3;
+#else
+        return 0;
+#endif
+    default:
+        HAL_ASSERT(false && "unsupported clock source");
+        return -1;
     }
 }
 
@@ -431,21 +473,24 @@ static inline void _i2s_ll_tx_clk_set_src(i2s_dev_t *hw, i2s_clock_src_t src)
     // Note: this function involves HP_SYS_CLKRST register which is shared with other peripherals, need lock in upper layer
     uint32_t clk_src = i2s_ll_get_clk_src(src);
     switch (I2S_LL_GET_ID(hw)) {
-        case 0:
-            HP_SYS_CLKRST.peri_clk_ctrl13.reg_i2s0_tx_clk_src_sel = clk_src;
-            return;
-        case 1:
-            HP_SYS_CLKRST.peri_clk_ctrl15.reg_i2s1_tx_clk_src_sel = clk_src;
-            return;
-        case 2:
-            HP_SYS_CLKRST.peri_clk_ctrl18.reg_i2s2_tx_clk_src_sel = clk_src;
-            return;
+    case 0:
+        HP_SYS_CLKRST.peri_clk_ctrl13.reg_i2s0_tx_clk_src_sel = clk_src;
+        return;
+    case 1:
+        HP_SYS_CLKRST.peri_clk_ctrl15.reg_i2s1_tx_clk_src_sel = clk_src;
+        return;
+    case 2:
+        HP_SYS_CLKRST.peri_clk_ctrl18.reg_i2s2_tx_clk_src_sel = clk_src;
+        return;
     }
 }
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define i2s_ll_tx_clk_set_src(...) (void)__DECLARE_RCC_ATOMIC_ENV; _i2s_ll_tx_clk_set_src(__VA_ARGS__)
+#define i2s_ll_tx_clk_set_src(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        _i2s_ll_tx_clk_set_src(__VA_ARGS__); \
+    } while(0)
 
 /**
  * @brief Set RX source clock
@@ -458,21 +503,86 @@ static inline void _i2s_ll_rx_clk_set_src(i2s_dev_t *hw, i2s_clock_src_t src)
     // Note: this function involves HP_SYS_CLKRST register which is shared with other peripherals, need lock in upper layer
     uint32_t clk_src = i2s_ll_get_clk_src(src);
     switch (I2S_LL_GET_ID(hw)) {
-        case 0:
-            HP_SYS_CLKRST.peri_clk_ctrl11.reg_i2s0_rx_clk_src_sel = clk_src;
-            return;
-        case 1:
-            HP_SYS_CLKRST.peri_clk_ctrl14.reg_i2s1_rx_clk_src_sel = clk_src;
-            return;
-        case 2:
-            HP_SYS_CLKRST.peri_clk_ctrl17.reg_i2s2_rx_clk_src_sel = clk_src;
-            return;
+    case 0:
+        HP_SYS_CLKRST.peri_clk_ctrl11.reg_i2s0_rx_clk_src_sel = clk_src;
+        return;
+    case 1:
+        HP_SYS_CLKRST.peri_clk_ctrl14.reg_i2s1_rx_clk_src_sel = clk_src;
+        return;
+    case 2:
+        HP_SYS_CLKRST.peri_clk_ctrl17.reg_i2s2_rx_clk_src_sel = clk_src;
+        return;
     }
 }
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define i2s_ll_rx_clk_set_src(...) (void)__DECLARE_RCC_ATOMIC_ENV; _i2s_ll_rx_clk_set_src(__VA_ARGS__)
+#define i2s_ll_rx_clk_set_src(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        _i2s_ll_rx_clk_set_src(__VA_ARGS__); \
+    } while(0)
+
+/**
+ * @brief Get TX source clock
+ *
+ * @param hw Peripheral I2S hardware instance address.
+ * @return Current TX clock source (i2s_clock_src_t).
+ */
+static inline i2s_clock_src_t i2s_ll_tx_clk_get_src(i2s_dev_t *hw)
+{
+    uint32_t clk_src;
+    switch (I2S_LL_GET_ID(hw)) {
+    case 0:
+        clk_src = HP_SYS_CLKRST.peri_clk_ctrl13.reg_i2s0_tx_clk_src_sel;
+        break;
+    case 1:
+        clk_src = HP_SYS_CLKRST.peri_clk_ctrl15.reg_i2s1_tx_clk_src_sel;
+        break;
+    case 2:
+        clk_src = HP_SYS_CLKRST.peri_clk_ctrl18.reg_i2s2_tx_clk_src_sel;
+        break;
+    default:
+        return (i2s_clock_src_t)I2S_CLK_SRC_DEFAULT;
+    }
+    switch (clk_src) {
+    case 0: return (i2s_clock_src_t)I2S_CLK_SRC_XTAL;
+    case 1: return (i2s_clock_src_t)I2S_CLK_SRC_APLL;
+    case 2: return (i2s_clock_src_t)I2S_CLK_SRC_EXTERNAL;
+    case 3: return (i2s_clock_src_t)I2S_CLK_SRC_PLL_160M;
+    default: return (i2s_clock_src_t)I2S_CLK_SRC_DEFAULT;
+    }
+}
+
+/**
+ * @brief Get RX source clock
+ *
+ * @param hw Peripheral I2S hardware instance address.
+ * @return Current RX clock source (i2s_clock_src_t).
+ */
+static inline i2s_clock_src_t i2s_ll_rx_clk_get_src(i2s_dev_t *hw)
+{
+    uint32_t clk_src;
+    switch (I2S_LL_GET_ID(hw)) {
+    case 0:
+        clk_src = HP_SYS_CLKRST.peri_clk_ctrl11.reg_i2s0_rx_clk_src_sel;
+        break;
+    case 1:
+        clk_src = HP_SYS_CLKRST.peri_clk_ctrl14.reg_i2s1_rx_clk_src_sel;
+        break;
+    case 2:
+        clk_src = HP_SYS_CLKRST.peri_clk_ctrl17.reg_i2s2_rx_clk_src_sel;
+        break;
+    default:
+        return (i2s_clock_src_t)I2S_CLK_SRC_DEFAULT;
+    }
+    switch (clk_src) {
+    case 0: return (i2s_clock_src_t)I2S_CLK_SRC_XTAL;
+    case 1: return (i2s_clock_src_t)I2S_CLK_SRC_APLL;
+    case 2: return (i2s_clock_src_t)I2S_CLK_SRC_EXTERNAL;
+    case 3: return (i2s_clock_src_t)I2S_CLK_SRC_PLL_160M;
+    default: return (i2s_clock_src_t)I2S_CLK_SRC_DEFAULT;
+    }
+}
 
 /**
  * @brief Set I2S tx bck div num
@@ -499,54 +609,54 @@ static inline void i2s_ll_tx_set_raw_clk_div(i2s_dev_t *hw, uint32_t div_int, ui
 {
     // Note: this function involves HP_SYS_CLKRST register which is shared with other peripherals, need lock in upper layer
     switch (I2S_LL_GET_ID(hw)) {
-        case 0:
-            /* Workaround for the double division issue.
-             * The division coefficients must be set in particular sequence.
-             * And it has to switch to a small division first before setting the target division. */
-            HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.peri_clk_ctrl13, reg_i2s0_tx_div_n, 2);
-            HP_SYS_CLKRST.peri_clk_ctrl14.reg_i2s0_tx_div_yn1 = 0;
-            HP_SYS_CLKRST.peri_clk_ctrl14.reg_i2s0_tx_div_y = 1;
-            HP_SYS_CLKRST.peri_clk_ctrl14.reg_i2s0_tx_div_z = 0;
-            HP_SYS_CLKRST.peri_clk_ctrl13.reg_i2s0_tx_div_x = 0;
-            /* Set the target mclk division coefficients */
-            HP_SYS_CLKRST.peri_clk_ctrl14.reg_i2s0_tx_div_yn1 = yn1;
-            HP_SYS_CLKRST.peri_clk_ctrl14.reg_i2s0_tx_div_z = z;
-            HP_SYS_CLKRST.peri_clk_ctrl14.reg_i2s0_tx_div_y = y;
-            HP_SYS_CLKRST.peri_clk_ctrl13.reg_i2s0_tx_div_x = x;
-            HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.peri_clk_ctrl13, reg_i2s0_tx_div_n, div_int);
-            return;
-        case 1:
-            /* Workaround for the double division issue.
-             * The division coefficients must be set in particular sequence.
-             * And it has to switch to a small division first before setting the target division. */
-            HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.peri_clk_ctrl16, reg_i2s1_tx_div_n, 2);
-            HP_SYS_CLKRST.peri_clk_ctrl17.reg_i2s1_tx_div_yn1 = 0;
-            HP_SYS_CLKRST.peri_clk_ctrl16.reg_i2s1_tx_div_y = 1;
-            HP_SYS_CLKRST.peri_clk_ctrl17.reg_i2s1_tx_div_z = 0;
-            HP_SYS_CLKRST.peri_clk_ctrl16.reg_i2s1_tx_div_x = 0;
-            /* Set the target mclk division coefficients */
-            HP_SYS_CLKRST.peri_clk_ctrl17.reg_i2s1_tx_div_yn1 = yn1;
-            HP_SYS_CLKRST.peri_clk_ctrl17.reg_i2s1_tx_div_z = z;
-            HP_SYS_CLKRST.peri_clk_ctrl16.reg_i2s1_tx_div_y = y;
-            HP_SYS_CLKRST.peri_clk_ctrl16.reg_i2s1_tx_div_x = x;
-            HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.peri_clk_ctrl16, reg_i2s1_tx_div_n, div_int);
-            return;
-        case 2:
-            /* Workaround for the double division issue.
-             * The division coefficients must be set in particular sequence.
-             * And it has to switch to a small division first before setting the target division. */
-            HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.peri_clk_ctrl18, reg_i2s2_tx_div_n, 2);
-            HP_SYS_CLKRST.peri_clk_ctrl19.reg_i2s2_tx_div_yn1 = 0;
-            HP_SYS_CLKRST.peri_clk_ctrl19.reg_i2s2_tx_div_y = 1;
-            HP_SYS_CLKRST.peri_clk_ctrl19.reg_i2s2_tx_div_z = 0;
-            HP_SYS_CLKRST.peri_clk_ctrl19.reg_i2s2_tx_div_x = 0;
-            /* Set the target mclk division coefficients */
-            HP_SYS_CLKRST.peri_clk_ctrl19.reg_i2s2_tx_div_yn1 = yn1;
-            HP_SYS_CLKRST.peri_clk_ctrl19.reg_i2s2_tx_div_z = z;
-            HP_SYS_CLKRST.peri_clk_ctrl19.reg_i2s2_tx_div_y = y;
-            HP_SYS_CLKRST.peri_clk_ctrl19.reg_i2s2_tx_div_x = x;
-            HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.peri_clk_ctrl18, reg_i2s2_tx_div_n, div_int);
-            return;
+    case 0:
+        /* Workaround for the double division issue.
+         * The division coefficients must be set in particular sequence.
+         * And it has to switch to a small division first before setting the target division. */
+        HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.peri_clk_ctrl13, reg_i2s0_tx_div_n, 2);
+        HP_SYS_CLKRST.peri_clk_ctrl14.reg_i2s0_tx_div_yn1 = 0;
+        HP_SYS_CLKRST.peri_clk_ctrl14.reg_i2s0_tx_div_y = 1;
+        HP_SYS_CLKRST.peri_clk_ctrl14.reg_i2s0_tx_div_z = 0;
+        HP_SYS_CLKRST.peri_clk_ctrl13.reg_i2s0_tx_div_x = 0;
+        /* Set the target mclk division coefficients */
+        HP_SYS_CLKRST.peri_clk_ctrl14.reg_i2s0_tx_div_yn1 = yn1;
+        HP_SYS_CLKRST.peri_clk_ctrl14.reg_i2s0_tx_div_z = z;
+        HP_SYS_CLKRST.peri_clk_ctrl14.reg_i2s0_tx_div_y = y;
+        HP_SYS_CLKRST.peri_clk_ctrl13.reg_i2s0_tx_div_x = x;
+        HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.peri_clk_ctrl13, reg_i2s0_tx_div_n, div_int);
+        return;
+    case 1:
+        /* Workaround for the double division issue.
+         * The division coefficients must be set in particular sequence.
+         * And it has to switch to a small division first before setting the target division. */
+        HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.peri_clk_ctrl16, reg_i2s1_tx_div_n, 2);
+        HP_SYS_CLKRST.peri_clk_ctrl17.reg_i2s1_tx_div_yn1 = 0;
+        HP_SYS_CLKRST.peri_clk_ctrl16.reg_i2s1_tx_div_y = 1;
+        HP_SYS_CLKRST.peri_clk_ctrl17.reg_i2s1_tx_div_z = 0;
+        HP_SYS_CLKRST.peri_clk_ctrl16.reg_i2s1_tx_div_x = 0;
+        /* Set the target mclk division coefficients */
+        HP_SYS_CLKRST.peri_clk_ctrl17.reg_i2s1_tx_div_yn1 = yn1;
+        HP_SYS_CLKRST.peri_clk_ctrl17.reg_i2s1_tx_div_z = z;
+        HP_SYS_CLKRST.peri_clk_ctrl16.reg_i2s1_tx_div_y = y;
+        HP_SYS_CLKRST.peri_clk_ctrl16.reg_i2s1_tx_div_x = x;
+        HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.peri_clk_ctrl16, reg_i2s1_tx_div_n, div_int);
+        return;
+    case 2:
+        /* Workaround for the double division issue.
+         * The division coefficients must be set in particular sequence.
+         * And it has to switch to a small division first before setting the target division. */
+        HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.peri_clk_ctrl18, reg_i2s2_tx_div_n, 2);
+        HP_SYS_CLKRST.peri_clk_ctrl19.reg_i2s2_tx_div_yn1 = 0;
+        HP_SYS_CLKRST.peri_clk_ctrl19.reg_i2s2_tx_div_y = 1;
+        HP_SYS_CLKRST.peri_clk_ctrl19.reg_i2s2_tx_div_z = 0;
+        HP_SYS_CLKRST.peri_clk_ctrl19.reg_i2s2_tx_div_x = 0;
+        /* Set the target mclk division coefficients */
+        HP_SYS_CLKRST.peri_clk_ctrl19.reg_i2s2_tx_div_yn1 = yn1;
+        HP_SYS_CLKRST.peri_clk_ctrl19.reg_i2s2_tx_div_z = z;
+        HP_SYS_CLKRST.peri_clk_ctrl19.reg_i2s2_tx_div_y = y;
+        HP_SYS_CLKRST.peri_clk_ctrl19.reg_i2s2_tx_div_x = x;
+        HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.peri_clk_ctrl18, reg_i2s2_tx_div_n, div_int);
+        return;
     }
 }
 
@@ -564,54 +674,54 @@ static inline void i2s_ll_rx_set_raw_clk_div(i2s_dev_t *hw, uint32_t div_int, ui
 {
     // Note: this function involves HP_SYS_CLKRST register which is shared with other peripherals, need lock in upper layer
     switch (I2S_LL_GET_ID(hw)) {
-        case 0:
-            /* Workaround for the double division issue.
-             * The division coefficients must be set in particular sequence.
-             * And it has to switch to a small division first before setting the target division. */
-            HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.peri_clk_ctrl12, reg_i2s0_rx_div_n, 2);
-            HP_SYS_CLKRST.peri_clk_ctrl13.reg_i2s0_rx_div_yn1 = 0;
-            HP_SYS_CLKRST.peri_clk_ctrl12.reg_i2s0_rx_div_y = 1;
-            HP_SYS_CLKRST.peri_clk_ctrl13.reg_i2s0_rx_div_z = 0;
-            HP_SYS_CLKRST.peri_clk_ctrl12.reg_i2s0_rx_div_x = 0;
-            /* Set the target mclk division coefficients */
-            HP_SYS_CLKRST.peri_clk_ctrl13.reg_i2s0_rx_div_yn1 = yn1;
-            HP_SYS_CLKRST.peri_clk_ctrl13.reg_i2s0_rx_div_z = z;
-            HP_SYS_CLKRST.peri_clk_ctrl12.reg_i2s0_rx_div_y = y;
-            HP_SYS_CLKRST.peri_clk_ctrl12.reg_i2s0_rx_div_x = x;
-            HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.peri_clk_ctrl12, reg_i2s0_rx_div_n, div_int);
-            return;
-        case 1:
-            /* Workaround for the double division issue.
-             * The division coefficients must be set in particular sequence.
-             * And it has to switch to a small division first before setting the target division. */
-            HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.peri_clk_ctrl14, reg_i2s1_rx_div_n, 2);
-            HP_SYS_CLKRST.peri_clk_ctrl15.reg_i2s1_rx_div_yn1 = 0;
-            HP_SYS_CLKRST.peri_clk_ctrl15.reg_i2s1_rx_div_y = 1;
-            HP_SYS_CLKRST.peri_clk_ctrl15.reg_i2s1_rx_div_z = 0;
-            HP_SYS_CLKRST.peri_clk_ctrl15.reg_i2s1_rx_div_x = 0;
-            /* Set the target mclk division coefficients */
-            HP_SYS_CLKRST.peri_clk_ctrl15.reg_i2s1_rx_div_yn1 = yn1;
-            HP_SYS_CLKRST.peri_clk_ctrl15.reg_i2s1_rx_div_z = z;
-            HP_SYS_CLKRST.peri_clk_ctrl15.reg_i2s1_rx_div_y = y;
-            HP_SYS_CLKRST.peri_clk_ctrl15.reg_i2s1_rx_div_x = x;
-            HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.peri_clk_ctrl14, reg_i2s1_rx_div_n, div_int);
-            return;
-        case 2:
-            /* Workaround for the double division issue.
-             * The division coefficients must be set in particular sequence.
-             * And it has to switch to a small division first before setting the target division. */
-            HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.peri_clk_ctrl17, reg_i2s2_rx_div_n, 2);
-            HP_SYS_CLKRST.peri_clk_ctrl18.reg_i2s2_rx_div_yn1 = 0;
-            HP_SYS_CLKRST.peri_clk_ctrl18.reg_i2s2_rx_div_y = 1;
-            HP_SYS_CLKRST.peri_clk_ctrl18.reg_i2s2_rx_div_z = 0;
-            HP_SYS_CLKRST.peri_clk_ctrl17.reg_i2s2_rx_div_x = 0;
-            /* Set the target mclk division coefficients */
-            HP_SYS_CLKRST.peri_clk_ctrl18.reg_i2s2_rx_div_yn1 = yn1;
-            HP_SYS_CLKRST.peri_clk_ctrl18.reg_i2s2_rx_div_z = z;
-            HP_SYS_CLKRST.peri_clk_ctrl18.reg_i2s2_rx_div_y = y;
-            HP_SYS_CLKRST.peri_clk_ctrl17.reg_i2s2_rx_div_x = x;
-            HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.peri_clk_ctrl17, reg_i2s2_rx_div_n, div_int);
-            return;
+    case 0:
+        /* Workaround for the double division issue.
+         * The division coefficients must be set in particular sequence.
+         * And it has to switch to a small division first before setting the target division. */
+        HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.peri_clk_ctrl12, reg_i2s0_rx_div_n, 2);
+        HP_SYS_CLKRST.peri_clk_ctrl13.reg_i2s0_rx_div_yn1 = 0;
+        HP_SYS_CLKRST.peri_clk_ctrl12.reg_i2s0_rx_div_y = 1;
+        HP_SYS_CLKRST.peri_clk_ctrl13.reg_i2s0_rx_div_z = 0;
+        HP_SYS_CLKRST.peri_clk_ctrl12.reg_i2s0_rx_div_x = 0;
+        /* Set the target mclk division coefficients */
+        HP_SYS_CLKRST.peri_clk_ctrl13.reg_i2s0_rx_div_yn1 = yn1;
+        HP_SYS_CLKRST.peri_clk_ctrl13.reg_i2s0_rx_div_z = z;
+        HP_SYS_CLKRST.peri_clk_ctrl12.reg_i2s0_rx_div_y = y;
+        HP_SYS_CLKRST.peri_clk_ctrl12.reg_i2s0_rx_div_x = x;
+        HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.peri_clk_ctrl12, reg_i2s0_rx_div_n, div_int);
+        return;
+    case 1:
+        /* Workaround for the double division issue.
+         * The division coefficients must be set in particular sequence.
+         * And it has to switch to a small division first before setting the target division. */
+        HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.peri_clk_ctrl14, reg_i2s1_rx_div_n, 2);
+        HP_SYS_CLKRST.peri_clk_ctrl15.reg_i2s1_rx_div_yn1 = 0;
+        HP_SYS_CLKRST.peri_clk_ctrl15.reg_i2s1_rx_div_y = 1;
+        HP_SYS_CLKRST.peri_clk_ctrl15.reg_i2s1_rx_div_z = 0;
+        HP_SYS_CLKRST.peri_clk_ctrl15.reg_i2s1_rx_div_x = 0;
+        /* Set the target mclk division coefficients */
+        HP_SYS_CLKRST.peri_clk_ctrl15.reg_i2s1_rx_div_yn1 = yn1;
+        HP_SYS_CLKRST.peri_clk_ctrl15.reg_i2s1_rx_div_z = z;
+        HP_SYS_CLKRST.peri_clk_ctrl15.reg_i2s1_rx_div_y = y;
+        HP_SYS_CLKRST.peri_clk_ctrl15.reg_i2s1_rx_div_x = x;
+        HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.peri_clk_ctrl14, reg_i2s1_rx_div_n, div_int);
+        return;
+    case 2:
+        /* Workaround for the double division issue.
+         * The division coefficients must be set in particular sequence.
+         * And it has to switch to a small division first before setting the target division. */
+        HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.peri_clk_ctrl17, reg_i2s2_rx_div_n, 2);
+        HP_SYS_CLKRST.peri_clk_ctrl18.reg_i2s2_rx_div_yn1 = 0;
+        HP_SYS_CLKRST.peri_clk_ctrl18.reg_i2s2_rx_div_y = 1;
+        HP_SYS_CLKRST.peri_clk_ctrl18.reg_i2s2_rx_div_z = 0;
+        HP_SYS_CLKRST.peri_clk_ctrl17.reg_i2s2_rx_div_x = 0;
+        /* Set the target mclk division coefficients */
+        HP_SYS_CLKRST.peri_clk_ctrl18.reg_i2s2_rx_div_yn1 = yn1;
+        HP_SYS_CLKRST.peri_clk_ctrl18.reg_i2s2_rx_div_z = z;
+        HP_SYS_CLKRST.peri_clk_ctrl18.reg_i2s2_rx_div_y = y;
+        HP_SYS_CLKRST.peri_clk_ctrl17.reg_i2s2_rx_div_x = x;
+        HAL_FORCE_MODIFY_U32_REG_FIELD(HP_SYS_CLKRST.peri_clk_ctrl17, reg_i2s2_rx_div_n, div_int);
+        return;
     }
 }
 
@@ -639,7 +749,10 @@ static inline void _i2s_ll_tx_set_mclk(i2s_dev_t *hw, const hal_utils_clk_div_t 
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define i2s_ll_tx_set_mclk(...) (void)__DECLARE_RCC_ATOMIC_ENV; _i2s_ll_tx_set_mclk(__VA_ARGS__)
+#define i2s_ll_tx_set_mclk(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        _i2s_ll_tx_set_mclk(__VA_ARGS__); \
+    } while(0)
 
 /**
  * @brief Set I2S rx bck div num
@@ -677,7 +790,10 @@ static inline void _i2s_ll_rx_set_mclk(i2s_dev_t *hw, const hal_utils_clk_div_t 
 
 /// use a macro to wrap the function, force the caller to use it in a critical section
 /// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
-#define i2s_ll_rx_set_mclk(...) (void)__DECLARE_RCC_ATOMIC_ENV; _i2s_ll_rx_set_mclk(__VA_ARGS__)
+#define i2s_ll_rx_set_mclk(...) do { \
+        (void)__DECLARE_RCC_ATOMIC_ENV; \
+        _i2s_ll_rx_set_mclk(__VA_ARGS__); \
+    } while(0)
 
 /**
  * @brief Update the TX configuration
@@ -910,8 +1026,7 @@ static inline void i2s_ll_tx_select_std_slot(i2s_dev_t *hw, i2s_std_slot_mask_t 
      * Otherwise always enable the first two slots */
     hw->tx_tdm_ctrl.tx_tdm_tot_chan_num = 1;  // tx_tdm_tot_chan_num = 2 slots - 1 = 1
     uint32_t chan_mask = 0;
-    switch (slot_mask)
-    {
+    switch (slot_mask) {
     case I2S_STD_SLOT_LEFT:
         chan_mask |= 0x01;
         break;
@@ -939,8 +1054,7 @@ static inline void i2s_ll_rx_select_std_slot(i2s_dev_t *hw, i2s_std_slot_mask_t 
      * Otherwise always enable the first two slots */
     hw->rx_tdm_ctrl.rx_tdm_tot_chan_num = 1;  // rx_tdm_tot_chan_num = 2 slots - 1 = 1
     uint32_t chan_mask = 0;
-    switch (slot_mask)
-    {
+    switch (slot_mask) {
     case I2S_STD_SLOT_LEFT:
         chan_mask |= 0x01;
         break;
@@ -1156,7 +1270,8 @@ static inline void i2s_ll_tx_set_pdm_hp_filter_param5(i2s_dev_t *hw, uint32_t pa
  */
 static inline void i2s_ll_tx_enable_pdm_hp_filter(i2s_dev_t *hw, bool enable)
 {
-    hw->tx_pcm2pdm_conf.tx_pdm_hp_bypass = !enable;
+    // Must enable on P4
+    HAL_ASSERT(enable);
 }
 
 /**
@@ -1268,7 +1383,6 @@ static inline void i2s_ll_rx_set_pdm_amplify_num(i2s_dev_t *hw, uint32_t amp_num
     hw->rx_pdm2pcm_conf.rx_pdm2pcm_amplify_num = amp_num;
 }
 
-
 /**
  * @brief Set I2S RX PDM high pass filter param0
  *
@@ -1301,7 +1415,6 @@ static inline void i2s_ll_rx_enable_pdm_hp_filter(i2s_dev_t *hw, bool enable)
 {
     hw->rx_pdm2pcm_conf.rx_pdm_hp_bypass = !enable;
 }
-
 
 /**
  * @brief Configura TX a/u-law decompress or compress
@@ -1403,7 +1516,6 @@ static inline void i2s_ll_tx_set_skip_mask(i2s_dev_t *hw, bool skip_mask_ena)
 {
     hw->tx_tdm_ctrl.tx_tdm_skip_msk_en = skip_mask_ena;
 }
-
 
 /**
  * @brief Configure single data
@@ -1608,14 +1720,14 @@ static inline bool i2s_ll_get_etm_tx_done_event_status(i2s_dev_t *hw)
 {
     uint32_t i2s_id = I2S_LL_GET_ID(hw);
     switch (i2s_id) {
-        case 0:
-            return SOC_ETM.evt_st4.i2s0_evt_tx_done_st;
-        case 1:
-            return SOC_ETM.evt_st4.i2s1_evt_tx_done_st;
-        case 2:
-            return SOC_ETM.evt_st4.i2s2_evt_tx_done_st;
-        default:
-            HAL_ASSERT(false);
+    case 0:
+        return SOC_ETM.evt_st4.i2s0_evt_tx_done_st;
+    case 1:
+        return SOC_ETM.evt_st4.i2s1_evt_tx_done_st;
+    case 2:
+        return SOC_ETM.evt_st4.i2s2_evt_tx_done_st;
+    default:
+        HAL_ASSERT(false);
     }
 }
 
@@ -1631,14 +1743,14 @@ static inline bool i2s_ll_get_etm_rx_done_event_status(i2s_dev_t *hw)
 {
     uint32_t i2s_id = I2S_LL_GET_ID(hw);
     switch (i2s_id) {
-        case 0:
-            return SOC_ETM.evt_st4.i2s0_evt_rx_done_st;
-        case 1:
-            return SOC_ETM.evt_st4.i2s1_evt_rx_done_st;
-        case 2:
-            return SOC_ETM.evt_st4.i2s2_evt_rx_done_st;
-        default:
-            HAL_ASSERT(false);
+    case 0:
+        return SOC_ETM.evt_st4.i2s0_evt_rx_done_st;
+    case 1:
+        return SOC_ETM.evt_st4.i2s1_evt_rx_done_st;
+    case 2:
+        return SOC_ETM.evt_st4.i2s2_evt_rx_done_st;
+    default:
+        HAL_ASSERT(false);
     }
 }
 
@@ -1654,14 +1766,14 @@ static inline bool i2s_ll_get_etm_tx_threshold_event_status(i2s_dev_t *hw)
 {
     uint32_t i2s_id = I2S_LL_GET_ID(hw);
     switch (i2s_id) {
-        case 0:
-            return SOC_ETM.evt_st4.i2s0_evt_x_words_sent_st;
-        case 1:
-            return SOC_ETM.evt_st4.i2s1_evt_x_words_sent_st;
-        case 2:
-            return SOC_ETM.evt_st4.i2s2_evt_x_words_sent_st;
-        default:
-            HAL_ASSERT(false);
+    case 0:
+        return SOC_ETM.evt_st4.i2s0_evt_x_words_sent_st;
+    case 1:
+        return SOC_ETM.evt_st4.i2s1_evt_x_words_sent_st;
+    case 2:
+        return SOC_ETM.evt_st4.i2s2_evt_x_words_sent_st;
+    default:
+        HAL_ASSERT(false);
     }
 }
 
@@ -1677,14 +1789,14 @@ static inline bool i2s_ll_get_etm_rx_threshold_event_status(i2s_dev_t *hw)
 {
     uint32_t i2s_id = I2S_LL_GET_ID(hw);
     switch (i2s_id) {
-        case 0:
-            return SOC_ETM.evt_st4.i2s0_evt_x_words_received_st;
-        case 1:
-            return SOC_ETM.evt_st4.i2s1_evt_x_words_received_st;
-        case 2:
-            return SOC_ETM.evt_st4.i2s2_evt_x_words_received_st;
-        default:
-            HAL_ASSERT(false);
+    case 0:
+        return SOC_ETM.evt_st4.i2s0_evt_x_words_received_st;
+    case 1:
+        return SOC_ETM.evt_st4.i2s1_evt_x_words_received_st;
+    case 2:
+        return SOC_ETM.evt_st4.i2s2_evt_x_words_received_st;
+    default:
+        HAL_ASSERT(false);
     }
 }
 

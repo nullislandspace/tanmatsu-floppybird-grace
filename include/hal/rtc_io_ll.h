@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2023-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2023-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -18,16 +18,20 @@
 #include "soc/lp_gpio_struct.h"
 #include "soc/lp_iomux_struct.h"
 #include "soc/lp_gpio_sig_map.h"
+#include "soc/lp_system_struct.h"
 #include "soc/pmu_struct.h"
 #include "hal/gpio_types.h"
 #include "hal/misc.h"
 #include "hal/assert.h"
+#include "hal/config.h"
+
+#define RTCIO_LL_PIN_FUNC           1 // LP_GPIO function
+
+#define RTCIO_LL_GPIO_NUM_OFFSET    0 // rtcio 0-15 correspond to gpio 0-15
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#define RTCIO_LL_PIN_FUNC       1 // LP_GPIO function
 
 typedef enum {
     RTCIO_LL_FUNC_RTC = 0x0,         /*!< The pin controlled by RTC module. */
@@ -38,6 +42,24 @@ typedef enum {
     RTCIO_LL_OUTPUT_NORMAL = 0,    /*!< RTCIO output mode is normal. */
     RTCIO_LL_OUTPUT_OD = 0x1,      /*!< RTCIO output mode is open-drain. */
 } rtcio_ll_out_mode_t;
+
+/**
+ * @brief Enable/Disable LP_GPIO peripheral clock.
+ *
+ * @param enable true to enable the clock / false to disable the clock
+ */
+static inline void _rtcio_ll_enable_io_clock(bool enable)
+{
+    LP_GPIO.clk_en.reg_clk_en = enable;
+    while (LP_GPIO.clk_en.reg_clk_en != enable) {
+        ;
+    }
+}
+
+#define rtcio_ll_enable_io_clock(...) do { \
+    (void)__DECLARE_RCC_ATOMIC_ENV; \
+    _rtcio_ll_enable_io_clock(__VA_ARGS__); \
+} while(0)
 
 /**
  * @brief Select RTC GPIO input to a signal.
@@ -69,9 +91,35 @@ static inline void rtcio_ll_matrix_out(int rtcio_num, uint32_t signal_idx, bool 
     reg.func_out_sel = signal_idx;
     reg.out_inv_sel = out_inv;
     reg.oe_inv_sel = oen_inv;
+    reg.oe_sel = 0; // output enable signal controlled by peripheral
     LP_GPIO.func_out_sel_cfg[rtcio_num].val = reg.val;
 
     HAL_FORCE_MODIFY_U32_REG_FIELD(LP_GPIO.enable_w1ts, reg_gpio_enable_data_w1ts, BIT(rtcio_num));
+}
+
+/**
+  * @brief Configure peripheral signal input whether to bypass LP_GPIO matrix.
+  *
+  * @param signal_idx LP peripheral signal index.
+  * @param from_gpio_matrix True if not to bypass LP_GPIO matrix, otherwise False.
+  */
+static inline void rtcio_ll_set_input_signal_from(uint32_t signal_idx, bool from_gpio_matrix)
+{
+    LP_GPIO.func_in_sel_cfg[signal_idx].sig_in_sel = from_gpio_matrix;
+}
+
+/**
+  * @brief Configure the source of output enable signal for the pad (only takes effect if func sel is selected to be LP_GPIO).
+  *
+  * @param rtcio_num The index of rtcio. 0 ~ MAX(rtcio).
+  * @param ctrl_by_periph True if use output enable signal from peripheral, false if force the output enable signal to be sourced from bit n of LP_GPIO_ENABLE_REG
+  * @param oen_inv True if the output enable needs to be inverted, otherwise False.
+  */
+__attribute__((always_inline))
+static inline void rtcio_ll_set_output_enable_ctrl(int rtcio_num, bool ctrl_by_periph, bool oen_inv)
+{
+    LP_GPIO.func_out_sel_cfg[rtcio_num].oe_inv_sel = oen_inv;       // control valid only when using lp gpio matrix to route signal to the LP IO
+    LP_GPIO.func_out_sel_cfg[rtcio_num].oe_sel = !ctrl_by_periph;
 }
 
 /**
@@ -90,21 +138,6 @@ static inline void rtcio_ll_iomux_func_sel(int rtcio_num, int func)
 }
 
 /**
- * @brief Enable/Disable LP_GPIO peripheral clock.
- *
- * @param enable true to enable the clock / false to disable the clock
- */
-static inline void _rtcio_ll_enable_io_clock(bool enable)
-{
-    LP_GPIO.clk_en.reg_clk_en = enable;
-    while (LP_GPIO.clk_en.reg_clk_en != enable) {
-        ;
-    }
-}
-
-#define rtcio_ll_enable_io_clock(...) (void)__DECLARE_RCC_ATOMIC_ENV; _rtcio_ll_enable_io_clock(__VA_ARGS__)
-
-/**
  * @brief Select the lp_gpio/hp_gpio function to control the pad.
  *
  * @note The RTC function must be selected before the pad analog function is enabled.
@@ -119,8 +152,6 @@ static inline void rtcio_ll_function_select(int rtcio_num, rtcio_ll_func_t func)
     if (func == RTCIO_LL_FUNC_RTC) {
         // 0: GPIO connected to digital GPIO module. 1: GPIO connected to analog RTC module.
         LP_IOMUX.pad[rtcio_num].mux_sel = 1;
-        // LP_GPIO is FUNC 1
-        rtcio_ll_iomux_func_sel(rtcio_num, RTCIO_LL_PIN_FUNC);
     } else if (func == RTCIO_LL_FUNC_DIGITAL) {
         // Clear the bit to use digital GPIO module
         LP_IOMUX.pad[rtcio_num].mux_sel = 0;
@@ -134,7 +165,7 @@ static inline void rtcio_ll_function_select(int rtcio_num, rtcio_ll_func_t func)
  */
 static inline void rtcio_ll_output_enable(int rtcio_num)
 {
-    HAL_FORCE_MODIFY_U32_REG_FIELD(LP_GPIO.enable_w1ts, reg_gpio_enable_data_w1ts, BIT(rtcio_num));
+    LP_GPIO.enable_w1ts.val = BIT(rtcio_num);
 }
 
 /**
@@ -144,7 +175,7 @@ static inline void rtcio_ll_output_enable(int rtcio_num)
  */
 static inline void rtcio_ll_output_disable(int rtcio_num)
 {
-    HAL_FORCE_MODIFY_U32_REG_FIELD(LP_GPIO.enable_w1tc, reg_gpio_enable_data_w1tc, BIT(rtcio_num));
+    LP_GPIO.enable_w1tc.val = BIT(rtcio_num);
     // Ensure no other output signal is routed via LP_GPIO matrix to this pin
     LP_GPIO.func_out_sel_cfg[rtcio_num].func_out_sel = SIG_LP_GPIO_OUT_IDX;
 }
@@ -158,9 +189,9 @@ static inline void rtcio_ll_output_disable(int rtcio_num)
 static inline void rtcio_ll_set_level(int rtcio_num, uint32_t level)
 {
     if (level) {
-        HAL_FORCE_MODIFY_U32_REG_FIELD(LP_GPIO.out_w1ts, reg_gpio_out_data_w1ts, BIT(rtcio_num));
+        LP_GPIO.out_w1ts.val = BIT(rtcio_num);
     } else {
-        HAL_FORCE_MODIFY_U32_REG_FIELD(LP_GPIO.out_w1tc, reg_gpio_out_data_w1tc, BIT(rtcio_num));
+        LP_GPIO.out_w1tc.val = BIT(rtcio_num);
     }
 }
 
@@ -309,9 +340,13 @@ static inline bool rtcio_ll_is_pulldown_enabled(int rtcio_num)
  */
 static inline void rtcio_ll_force_hold_enable(int rtcio_num)
 {
+#if HAL_CONFIG(CHIP_SUPPORT_MIN_REV) >= 300
+    LP_SYS.pad_rtc_hold_ctrl0.pad_rtc_hold_ctrl0 |= BIT(rtcio_num);
+#else
     uint32_t hold_mask = HAL_FORCE_READ_U32_REG_FIELD(LP_IOMUX.lp_pad_hold, reg_lp_gpio_hold);
     hold_mask |= BIT(rtcio_num);
     HAL_FORCE_MODIFY_U32_REG_FIELD(LP_IOMUX.lp_pad_hold, reg_lp_gpio_hold, hold_mask);
+#endif
 }
 
 /**
@@ -322,9 +357,13 @@ static inline void rtcio_ll_force_hold_enable(int rtcio_num)
  */
 static inline void rtcio_ll_force_hold_disable(int rtcio_num)
 {
+#if HAL_CONFIG(CHIP_SUPPORT_MIN_REV) >= 300
+    LP_SYS.pad_rtc_hold_ctrl0.pad_rtc_hold_ctrl0 &= ~BIT(rtcio_num);
+#else
     uint32_t hold_mask = HAL_FORCE_READ_U32_REG_FIELD(LP_IOMUX.lp_pad_hold, reg_lp_gpio_hold);
     hold_mask &= ~BIT(rtcio_num);
     HAL_FORCE_MODIFY_U32_REG_FIELD(LP_IOMUX.lp_pad_hold, reg_lp_gpio_hold, hold_mask);
+#endif
 }
 
 /**
@@ -471,7 +510,7 @@ static inline uint32_t rtcio_ll_get_interrupt_status(void)
  */
 static inline  void rtcio_ll_clear_interrupt_status(void)
 {
-    HAL_FORCE_MODIFY_U32_REG_FIELD(LP_GPIO.status_w1tc, reg_gpio_status_data_w1tc, 0xFFFF);
+    LP_GPIO.status_w1tc.val = 0xFFFF;
 }
 
 #ifdef __cplusplus

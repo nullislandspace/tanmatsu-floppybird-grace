@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -18,7 +18,7 @@
 
 #include "soc/soc_caps.h"
 #if SOC_RTCIO_PIN_COUNT > 0
-#include "soc/rtc_io_periph.h"
+#include "hal/rtc_io_periph.h"
 #include "hal/rtc_io_ll.h"
 #if SOC_RTCIO_INPUT_OUTPUT_SUPPORTED
 #include "hal/rtc_io_types.h"
@@ -198,6 +198,23 @@ void rtcio_hal_set_direction_in_sleep(int rtcio_num, rtc_gpio_mode_t mode);
  */
 #define rtcio_hal_iomux_func_sel(rtcio_num, func) rtcio_ll_iomux_func_sel(rtcio_num, func)
 
+/**
+  * @brief Set pad input to an LP peripheral signal through the LP(RTC) IOMUX
+  *
+  * @param rtcio_num The index of rtcio. 0 ~ SOC_RTCIO_PIN_COUNT.
+  * @param func The index number of the IOMUX function to be selected for the pin.
+  * @param signal_idx Peripheral signal index to input. One of the ``*_IN_IDX`` signals in ``soc/lp_gpio_sig_map.h``.
+  */
+void rtcio_hal_iomux_input(int rtcio_num, int func, uint32_t signal_idx);
+
+/**
+  * @brief Set LP peripheral output to an RTC IO pad through the LP(RTC) IOMUX
+  *
+  * @param rtcio_num The index of rtcio. 0 ~ SOC_RTCIO_PIN_COUNT.
+  * @param func The index number of the LP(RTC) IOMUX function to be selected for the pin
+  */
+void rtcio_hal_iomux_output(int rtcio_num, int func);
+
 #if SOC_LP_GPIO_MATRIX_SUPPORTED
 /**
  * Select RTC GPIO input to a signal
@@ -312,11 +329,11 @@ void rtcio_hal_isolate(int rtc_num);
 
 #endif //SOC_RTCIO_PIN_COUNT > 0
 
-#if SOC_GPIO_SUPPORT_DEEPSLEEP_WAKEUP && (SOC_RTCIO_PIN_COUNT > 0)
+#if SOC_GPIO_SUPPORT_HP_PERIPH_PD_SLEEP_WAKEUP && (SOC_RTCIO_PIN_COUNT > 0)
 
-#define gpio_hal_deepsleep_wakeup_enable(hal, gpio_num, intr_type)  rtcio_hal_wakeup_enable(rtc_io_num_map[gpio_num], intr_type)
-#define gpio_hal_deepsleep_wakeup_disable(hal, gpio_num)            rtcio_hal_wakeup_disable(rtc_io_num_map[gpio_num])
-#define gpio_hal_deepsleep_wakeup_is_enabled(hal, gpio_num)         rtcio_hal_wakeup_is_enabled(rtc_io_num_map[gpio_num])
+#define gpio_hal_wakeup_enable_on_hp_periph_powerdown_sleep(hal, gpio_num, intr_type)  rtcio_hal_wakeup_enable(rtc_io_num_map[gpio_num], intr_type)
+#define gpio_hal_wakeup_disable_on_hp_periph_powerdown_sleep(hal, gpio_num)            rtcio_hal_wakeup_disable(rtc_io_num_map[gpio_num])
+#define gpio_hal_wakeup_is_enabled_on_hp_periph_powerdown_sleep(hal, gpio_num)         rtcio_hal_wakeup_is_enabled(rtc_io_num_map[gpio_num])
 #define rtc_hal_gpio_get_wakeup_status()                            rtcio_hal_get_interrupt_status()
 #define rtc_hal_gpio_clear_wakeup_status()                          rtcio_hal_clear_interrupt_status()
 
@@ -341,7 +358,7 @@ void rtcio_hal_isolate(int rtc_num);
  */
 #define rtcio_hal_clear_interrupt_status()      rtcio_ll_clear_interrupt_status()
 
-#endif //SOC_GPIO_SUPPORT_DEEPSLEEP_WAKEUP && (SOC_RTCIO_PIN_COUNT > 0)
+#endif //SOC_GPIO_SUPPORT_HP_PERIPH_PD_SLEEP_WAKEUP && (SOC_RTCIO_PIN_COUNT > 0)
 
 #ifdef __cplusplus
 }
