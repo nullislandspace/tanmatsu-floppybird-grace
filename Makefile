@@ -14,6 +14,11 @@ IDF_TOOLS_PATH ?= $(shell cat .IDF_TOOLS_PATH 2>/dev/null || echo `pwd`/esp-idf-
 IDF_VERSION ?= v6.0.2
 IDF_GITHUB_ASSETS ?= dl.espressif.com/github_assets
 
+# The ESP-IDF environment script. Only mode_badgelink needs it (for pyserial
+# out of the IDF python env -- the app build itself just needs the toolchain
+# via IDF_TOOLS_PATH). Honours an IDF_SOURCE already exported by the shell.
+IDF_SOURCE ?= $(shell cat .IDF_PATH 2>/dev/null && echo '$(IDF_PATH)/export.sh' || test -d `pwd`/esp-idf && echo '$(IDF_PATH)/export.sh' || echo '$(HOME)/.espressif/tools/activate_idf_$(IDF_VERSION).sh')
+
 export IDF_TOOLS_PATH
 export IDF_GITHUB_ASSETS
 
@@ -66,6 +71,41 @@ GRACELOADER_SLUG ?= at.cavac.graceloader
 .PHONY: run
 run:
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) start $(GRACELOADER_SLUG) $(APP_INSTALL_PATH)/app.so
+
+# USB mode switching
+#
+# The device's USB peripheral is in one of two modes: BadgeLink (USB_DEVICE),
+# which is what install / run need, or flash-and-monitor (USB_DEBUG). An
+# `install` that fails to reach the device usually means the launcher left it
+# in debug mode -- `make mode_badgelink` puts it back.
+#
+# Ask the firmware (in USB_DEBUG mode) to switch its USB into BadgeLink mode
+# by sending the token "BADGELINK\n" on the USB-serial/JTAG peripheral. The
+# launcher listens for it (see ../tanmatsu-launcher/main/usb_device.c), so
+# this only works against firmware that implements the listener.
+#
+# PORT accepts either a local device path (e.g. /dev/ttyACM0) or an rfc2217://
+# URL pointing at ../tanmatsu-badgefs/rfc2217proxy when the device is
+# forwarded over the network.
+.PHONY: mode_badgelink
+mode_badgelink:
+	source "$(IDF_SOURCE)" >/dev/null && \
+	python3 -c "import serial, sys; s=serial.serial_for_url('$(PORT)', timeout=1); s.write(b'BADGELINK\n'); s.flush(); sys.stdout.write(s.read(128).decode(errors='replace')); s.close()"
+
+# The other direction: ask the firmware (in BadgeLink mode) to switch its USB
+# back to flash/monitor mode, through BadgeLink's own `mode` command. Uses the
+# badgelink checkout that `make badgelink` creates, and the same BADGELINK_CONN
+# as install / run, so it follows a networked device too.
+BADGELINK_SH := badgelink/tools/badgelink.sh
+
+.PHONY: mode_debug
+mode_debug:
+	if [ ! -x "$(BADGELINK_SH)" ]; then \
+	  echo "$(BADGELINK_SH) not found -- run 'make badgelink' first"; \
+	  exit 1; \
+	fi; \
+	echo "Using $(BADGELINK_SH)"; \
+	"$(BADGELINK_SH)" $(BADGELINK_CONN) mode debug
 
 APP_REPO_PATH ?= ../tanmatsu-app-repository/$(APP_SLUG_NAME)
 

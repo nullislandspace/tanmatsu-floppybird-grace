@@ -62,6 +62,7 @@ ${CMAKE_C_COMPILER} \
 add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/app.so
     COMMAND sh ${LINK_SCRIPT}
     DEPENDS app_obj
+        $<TARGET_OBJECTS:app_obj>
         ${CMAKE_CURRENT_SOURCE_DIR}/app.ld
         ${CMAKE_CURRENT_SOURCE_DIR}/app_version.script
         ${CMAKE_CURRENT_SOURCE_DIR}/fakelib/liball.so
