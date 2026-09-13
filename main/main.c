@@ -23,6 +23,7 @@
 
 #include "flappy_sounds.h"
 #include "hershey_font.h"
+#include "app_volume.h"
 
 static char const TAG[] = "floppybird";
 
@@ -509,8 +510,7 @@ void app_main(void) {
     // Audio init
     bsp_audio_initialize(SAMPLE_RATE);
     bsp_audio_get_i2s_handle(&i2s_handle);
-    bsp_audio_set_amplifier(true);
-    bsp_audio_set_volume(100);
+    app_volume_init();  // Amplifier and volume from the global settings
     memset(active_sounds, 0, sizeof(active_sounds));
 
     // Audio mixing task on Core 1
@@ -544,6 +544,9 @@ void app_main(void) {
         bool              space_pressed = false;
 
         while (xQueueReceive(input_event_queue, &event, 0) == pdTRUE) {
+            if (app_volume_handle_event(&event)) {
+                continue;
+            }
             if (event.type == INPUT_EVENT_TYPE_SCANCODE) {
                 if (event.args_scancode.scancode == BSP_INPUT_SCANCODE_ESC) {
                     bsp_device_restart_to_launcher();
