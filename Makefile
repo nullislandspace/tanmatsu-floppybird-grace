@@ -38,6 +38,56 @@ build:
 	cd $(BUILD) && cmake .. && make
 	@echo "=== Build complete: $(BUILD)/app.so ==="
 
+# SynthEngine3D, the 3D engine: not part of the template, added per app as a
+# git submodule (CMakeLists.txt builds it when synthengine3D/ is there, and is
+# untouched otherwise). Run this once in a new app that wants 3D; afterwards a
+# fresh clone needs `git clone --recursive` or `git submodule update --init`.
+ENGINE_URL ?= git@github.com:nullislandspace/synthengine3D.git
+ENGINE_REF ?= main
+
+.PHONY: engine
+engine:
+	if test -d synthengine3D; then \
+	  echo "synthengine3D/ is already there -- 'git submodule update --remote synthengine3D' updates it"; exit 1; \
+	fi
+	git submodule add -b $(ENGINE_REF) $(ENGINE_URL) synthengine3D
+	git submodule update --init --recursive synthengine3D
+	@echo "=== SynthEngine3D added. Commit .gitmodules and synthengine3D, then #include \"synthengine3d.h\" ==="
+
+# Test automation (main/testkit/devtest.h, tools/testrun.py). Opt-in:
+# the app has to compile main/testkit/*.c and call devtest_start(). See
+# README, "Automated device tests".
+#
+#   make testrun TEST="perf scene=title secs=20"      the app must be running
+#   make cycle   TEST="shots scene=title ms=0,2500"   build, install, run, test
+#   make testrefs    TEST="shots ..."                 cycle, then store the shot hashes as references
+#   make testcompare TEST="shots ..."                 cycle, then compare against them
+#   make recover                                      after a crash or a hang
+#
+# The app runs the test and returns to the launcher by itself, so the
+# whole cycle is hands-free. Shot images stay on the SD card; the hashes
+# come back over the console, which is what a regression check compares.
+# TESTFLAGS=--fetch downloads the images too (slow).
+TEST ?=
+TESTFLAGS ?=
+
+.PHONY: testrun cycle testrefs testcompare recover
+testrun:
+	source "$(IDF_SOURCE)" >/dev/null && \
+	python3 -u tools/testrun.py --port "$(PORT)" --badgelink-conn "$(BADGELINK_CONN)" $(TESTFLAGS) -- $(TEST)
+
+cycle: build install run
+	$(MAKE) testrun
+
+testrefs:
+	$(MAKE) cycle TESTFLAGS="--capture-refs"
+
+testcompare:
+	$(MAKE) cycle TESTFLAGS="--compare"
+
+recover:
+	source "$(IDF_SOURCE)" >/dev/null && python3 tools/recover.py --port "$(PORT)"
+
 # Badgelink
 .PHONY: badgelink
 badgelink:

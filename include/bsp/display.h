@@ -104,5 +104,22 @@ esp_err_t bsp_display_get_tearing_effect_mode(bsp_display_te_mode_t* mode);
 esp_err_t bsp_display_get_tearing_effect_semaphore(SemaphoreHandle_t* semaphore);
 
 /// @brief Send pixel data to the display
+/// @param x_start Start pixel index on the x-axis, included
+/// @param y_start Start pixel index on the y-axis, included
+/// @param x_end End pixel index on the x-axis, not included
+/// @param y_end End pixel index on the y-axis, not included
+/// @param buffer Pixel data for the window, tightly packed
 /// @return ESP-IDF error code
-esp_err_t bsp_display_blit(size_t x, size_t y, size_t width, size_t height, const void* buffer);
+esp_err_t bsp_display_blit(size_t x_start, size_t y_start, size_t x_end, size_t y_end, const void* buffer);
+
+/// @brief Wait for display flush to be completed
+/// @return ESP-iDF error code
+esp_err_t bsp_display_wait(uint32_t timeout_ms);
+
+/// @brief Returns true if display is busy (flusing)
+/// @return boolean, true when display is busy
+bool bsp_display_get_busy(void);
+
+/// @brief Interrupt threads waiting on the bsp_display_wait function
+/// @return ESP-iDF error code
+esp_err_t bsp_display_interrupt(void);
