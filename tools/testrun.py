@@ -261,7 +261,13 @@ def main():
         print("no --port and no $PORT", file=sys.stderr)
         return EXIT_USAGE
     bl_port = os.environ.get("BADGELINKPORT", "")
-    conn = args.badgelink_conn or (f"--tcp {bl_port}" if ":" in bl_port else f"--port {bl_port}")
+    # No BADGELINKPORT: badgelink's own USB connection to the P4 (16d0:0f9a).
+    # host:port is a TCP proxy; anything else a serial device, whose
+    # /dev/serial/by-path name has colons in it too.
+    if args.badgelink_conn or not bl_port:
+        conn = args.badgelink_conn or ""
+    else:
+        conn = f"--tcp {bl_port}" if re.fullmatch(r"[^/]+:\d+", bl_port) else f"--port {bl_port}"
 
     test_line = " ".join(args.test)
     kind_of_test = args.test[0]
